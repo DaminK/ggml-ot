@@ -30,8 +30,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "ggml_ot", from = "src"}]
-
+name = "ggml_ot"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
