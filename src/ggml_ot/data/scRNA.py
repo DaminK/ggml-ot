@@ -18,10 +18,11 @@ from torch.utils.data import DataLoader
 
 #Optimal Transport
 import ot
-from ggml.distances import pairwise_mahalanobis_distance_npy
+from ggml_ot.distances import pairwise_mahalanobis_distance_npy
 
 #Plotting
-from ggml.plot import plot_distribution,plot_emb, hier_clustering
+from ggml_ot.plot import plot_distribution, plot_emb, hier_clustering
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 

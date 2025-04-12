@@ -2,13 +2,13 @@ from .util import create_t_triplets
 from torch.utils.data import Dataset
 import pandas as pd
 
-from ggml.distances import pairwise_mahalanobis_distance_npy
+from ggml_ot.distances import pairwise_mahalanobis_distance_npy
 import ot
 import numpy as np
 
 import seaborn as sns
 import matplotlib.pyplot as plt
-from ggml.plot import plot_emb, hier_clustering
+from ggml_ot.plot import plot_emb, hier_clustering
 
 class synthetic_Dataset(Dataset):
     #The __init__ function is run once when instantiating the Dataset object.

@@ -318,3 +318,50 @@ def plot_clustermap(dist,labels, ax=None, cluster=True, method="average",title=N
         fig.figure.savefig(save_path)
 
     return linkage
+
+
+def hier_clustering(dist,labels, ax=None, cluster=True, method="average",title=None,dist_name="",log=False,save_path=None,cmap="tab20",hue_order=None,annotation=False):
+    #Creating list of colors for conds
+    unique_inds = np.unique(labels, return_index=True)[1]
+    unique_labels = np.asarray([labels[index] for index in sorted(unique_inds)] ).tolist() if hue_order is None else hue_order
+    if isinstance(cmap,str):
+        cmap = sns.color_palette(palette=cmap,n_colors=len(unique_labels))
+        colors = [cmap[unique_labels.index(l)] for l in labels]
+    else:
+        colors = [cmap[l] for l in labels]
+
+    dist = np.copy(dist)
+
+    if cluster:
+        dist[np.eye(len(dist),dtype=bool)] = 0  
+        linkage =  hc.linkage(sp.distance.squareform(dist), method=method, optimal_ordering=True)
+    else:
+        linkage = None
+
+    norm = None
+    if log:
+        norm = LogNorm()
+        dist[dist<=0] = np.min(dist[dist>0])
+
+    
+    fig = sns.clustermap(dist, figsize=(5,5),row_cluster=cluster, col_cluster=cluster, row_linkage=linkage ,col_linkage=linkage, dendrogram_ratio=0.15,
+            row_colors=colors, col_colors=colors,method=method, cmap=sns.cm.rocket_r,
+            #cbar_pos=(.2, 0, .2, .02),cbar_kws={"label":dist_name, "orientation":'horizontal'},yticklabels=False,xticklabels=False) #,)
+            cbar_pos=(0.05, 0.1, .1, .02),cbar_kws={"orientation":'horizontal'},yticklabels=False,xticklabels=annotation,norm=norm)
+
+    fig.ax_heatmap.tick_params(right=False, bottom=False if annotation is False else True) #sounds really stupid but annotation might be non-boolean
+
+
+    fig.ax_col_dendrogram.set_visible(False)
+
+    fig.ax_cbar.set_title(dist_name)
+
+    if title is not None:
+        fig.fig.suptitle(title)
+
+    plt.show()
+    
+    if save_path is not None:
+        fig.figure.savefig(save_path)
+
+    return linkage

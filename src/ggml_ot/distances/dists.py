@@ -5,7 +5,7 @@ from torchvision import datasets, models, transforms
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 import scipy
-from ggml.plot import plot_ellipses
+from ggml_ot.plot import plot_ellipses, hier_clustering
 
 #wrapper for precomputed distance matrix
 #only execute once values are accessed
