@@ -2,7 +2,7 @@
 name = "ggml-ot"
 version = "0.0.1"
 description = "Global Ground Metric Learning"
-authors = [{ name = "damin", email = "damin.kuehn@rwth-aachen.de" }]
+authors = "Damin Kuehn <damin.kuehn@rwth-aachen.de>"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -47,15 +47,17 @@ Issues = "https://github.com/DaminK/ggml-ot/issues"
 name = "ggml-ot"
 version = "0.0.1"
 description = "Global Ground Metric Learning"
-authors = ["Damin Kuehn <damin.kuehn@rwth-aachen.de"]
+authors = ["Damin Kuehn <damin.kuehn@rwth-aachen.de>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-Sphinx = "5.0.2"
-sphinx-autorun = "^1.1.1"
-sphinx-rdt-theme  = "^2.0.0"
+Sphinx = "^8.0.0"
+sphinx-autorun = "^2.0.0"
+sphinx-rtd-theme = "^3.0.0"
 
 [tool.poetry.dev-dependencies]
+black = "^23.1.0"
+pre-commit = "^3.2.1"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

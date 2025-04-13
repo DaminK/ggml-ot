@@ -9,4 +9,5 @@ build:
     post_install:
       - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH poetry install # Install Dependencies
 sphinx:
-  configuration: docs/conf.py 
+  configuration: docs/source/conf.py
+  fail_on_warning: true
