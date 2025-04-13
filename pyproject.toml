@@ -1,8 +1,6 @@
 [project]
 name = "ggml-ot"
-version = "0.0.1"
-description = "Global Ground Metric Learning"
-authors = "Damin Kuehn <damin.kuehn@rwth-aachen.de>"
+authors = [{ name = "Damin Kuehn", email = "damin.kuehn@rwth-aachen.de" }]
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -62,4 +60,3 @@ pre-commit = "^3.2.1"
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-
