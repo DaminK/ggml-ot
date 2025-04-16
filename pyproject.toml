@@ -2,7 +2,7 @@
 name = "ggml-ot"
 authors = [{ name = "Damin Kuehn", email = "damin.kuehn@rwth-aachen.de" }]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating Systems :: OS Independent",
@@ -47,15 +47,19 @@ version = "0.0.1"
 description = "Global Ground Metric Learning"
 authors = ["Damin Kuehn <damin.kuehn@rwth-aachen.de>"]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-Sphinx = "^8.0.0"
-sphinx-autorun = "^2.0.0"
-sphinx-rtd-theme = "^3.0.0"
+[tool.poetry.group.dev]
+optional = true
 
-[tool.poetry.dev-dependencies]
-black = "^23.1.0"
+[tool.poetry.group.dev.dependencies]
 pre-commit = "^3.2.1"
+
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.group.docs.dependencies]
+sphinx = "^8.2.3"
+sphinx-autorun = "^2.0.0"
+sphinx-rtd-theme = "^3.0.2"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
