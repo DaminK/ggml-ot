@@ -1,8 +1,6 @@
 import numpy as np
-import scipy
 
 import seaborn as sns
-from matplotlib.patches import Patch
 from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -13,15 +11,39 @@ from sklearn.manifold import TSNE
 from sklearn import manifold
 from sklearn.decomposition import PCA
 from pydiffmap import diffusion_map
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from PIL import Image
 
-import scipy.spatial as sp, scipy.cluster.hierarchy as hc
-#import phate
+import scipy.spatial as sp 
+import scipy.cluster.hierarchy as hc
 import warnings
 
-#import MDAnalysis.analysis.diffusionmap as diffusionmap
 
 def plot_distribution(dists,labels,projection= lambda x:x,title="",legend=True):
+    """Visualizes high-dimensional distributions in 2D using optional PCS projection.
+    The distributions are plotted as a scatter plot where the classes are distinguishable by color
+    and the distributions by shape.
+
+    :param dists: distributions to plot of shape (num_distributions, num_points, num_features)   
+    :type dists: numpy.ndarray or similar 
+    :param labels: labels corresponding to distributions
+    :type labels: numpy.ndarray similar
+    :param projection: transformation to apply to distributions before plotting, defaults to lambdax:x
+    :type projection: callable, optional
+    :param title: title of the plot, defaults to ""
+    :type title: str, optional
+    :param legend: whether to show legend, defaults to True
+    :type legend: bool, optional
+    """
+    
+    # convert input distributions to numpy array
+    if type(dists) is not np.ndarray:
+        dists = np.array(dists)
     pca = None
+    
+    offset = dists.shape[0] / len(np.unique(labels))
+    
+    # apply PCA if distributions have more than 2 dimensions
     dim = dists.shape[-1]
     if dim>2:
         print("PCA")
@@ -30,169 +52,246 @@ def plot_distribution(dists,labels,projection= lambda x:x,title="",legend=True):
         pca = PCA(n_components=2, svd_solver='full')
         pca.fit_transform(flat_dists)
 
+    # apply projection and PCA to projected distributions
+    # create x,y coordinates and class labels for each data point
     i=0
     dfList_projected = []
     for dist, l in zip(dists,labels):
         stacked_projected = projection(dist) 
         if pca is not None:
             stacked_projected = pca.transform(stacked_projected)
-        dfList_projected.append(pd.DataFrame({'x':stacked_projected[:,0],'y':stacked_projected[:,1],'class':str(l.item()),'dist':i % 4})) #TODO ahrdcoded
+        dfList_projected.append(pd.DataFrame({'x':stacked_projected[:,0],'y':stacked_projected[:,1],'class':str(l.item()),'dist': i % offset})) # TODO is this desired??
         i += 1
 
+    # visualize in scatter plot
     df_projected= pd.concat(dfList_projected, axis=0)
     plt.figure(figsize=(6,6))
     ax = sns.scatterplot(df_projected,x='x',y='y',hue="class",style='dist',alpha=0.5)
-    
-    #ax.set_ylim(-0.01, 0.01)
     if legend:
         sns.move_legend(ax, "center right", bbox_to_anchor=(1.3, 0.5))
     else:
         ax.get_legend().remove()
-
     ax.set_title(title)
 
+
 def plot_ellipses(covariances, ax=None, title=None):
-        if ax is None:
-            print("Create fig")
-            fig, ax = plt.subplots(figsize=(3,3))
-           
-            
-        max = 0
+    """Visualizes ellipses representing the covariance matrix.
 
-        covariances = covariances / np.max(covariances)
-
-            
-        n_classes = 1 #for now just 1    
-        colors = sns.color_palette("Set2",n_classes)
-        for n, color in enumerate(colors):
-            v, w = np.linalg.eigh(covariances)
-            u = w[0] / np.linalg.norm(w[0])
-            angle = np.arctan2(u[1], u[0])
-            angle = 180 * angle / np.pi  # convert to degrees
-            v = 2.0 * np.sqrt(2.0) * np.sqrt(v)
-            ell = mpl.patches.Ellipse(
-                [0]*len(covariances), v[0], v[1], angle=180 + angle, color=color
-            )
-            ell.set_clip_box(ax.bbox)
-            ell.set_alpha(0.5)
-            ax.add_artist(ell)
-            ax.set_aspect("equal", "datalim")
-            max = np.max([max,v[0],v[1]])
-
-        max  = 1.8 # 1.5* np.max(covariances)
+    :param covariances: 2D covariance matrix
+    :type covariances: numpy.ndarray
+    :param ax: axes object on which to plot the ellipses, defaults to None
+    :type ax: matplotlib Axes, optional
+    :param title: title of the plot, defaults to None
+    :type title: str, optional
+    :return: axes containing the plotted ellipses
+    :rtype: matplotlib.axes.Axes
+    """
     
-        ax.set_xlim([-max, max])
-        ax.set_ylim([-max, max])
+    # if no axes is provided, create one
+    if ax is None:
+        print("Create fig")
+        _, ax = plt.subplots(ncols = len(covariances), figsize=(3 * len(covariances),3))
+    
+    max = 0
+    
+    # make an ndarray if only one covariance matrix is given
+    if isinstance(covariances, np.ndarray) and covariances.ndim == 2:
+        covariances = [covariances]
+    
+    colors = sns.color_palette("Set2",len(covariances))
+    
+    # compute and plot ellipses
+    for i, covariance in enumerate(covariances):
+        # normalize matrix
+        covariance = covariance / np.max(covariance)
         
-        plt.xticks([-1,0,1]) #(np.arange(-max,max,dtype=int)))
-        plt.yticks([-1,0,1]) #(np.arange(-max,max,dtype=int)))
+        # compute eigenvalues and eigenvectors and angle of ellipse
+        v, w = np.linalg.eigh(covariance)
+        u = w[0] / np.linalg.norm(w[0])
+        angle = np.arctan2(u[1], u[0])
+        angle = 180 * angle / np.pi  # convert to degrees
+        v = 2.0 * np.sqrt(2.0) * np.sqrt(v)
         
+        # create ellipse
+        ell = mpl.patches.Ellipse(
+            (0,0), v[0], v[1], angle=180 + angle, color=colors[i]
+        )
+        ell.set_clip_box(ax.bbox)
+        ell.set_alpha(0.5)
+        ax.add_artist(ell)
+        ax.set_aspect("equal")
+        max = np.max([max, v[0], v[1]])
 
+    ax.set_xlim([-max, max])
+    ax.set_ylim([-max, max])
+    
+    ax.set_xticks(np.arange(-max, max, dtype=int))
+    ax.set_yticks(np.arange(-max, max, dtype=int))
 
-        if title is not None:
-            ax.set_title(title)
+    if title is not None:
+        ax.set_title(title)
 
-        return ax
+    return ax
+
 
 def plot_heatmap(results,labels='auto',xlabels=None,ylabels=None,ax=None,title=None):
+    """Visualize a 2D matrix as a heatmap.
+    It represents the values of an input matrix by colors.
+
+    :param results: data to be represented as a heatmap
+    :type results: numpy.ndarray or similar
+    :param labels: labels of the data, defaults to 'auto'
+    :type labels: “auto”, bool, list-like, or int, optional
+    :param xlabels: labels of the x-axis, defaults to None
+    :type xlabels: “auto”, bool, list-like, or int, optional
+    :param ylabels: labels of the y-axis, defaults to None 
+    :type ylabels: “auto”, bool, list-like, or int, optional
+    :param ax: axes on which to draw the plot, defaults to None
+    :type ax: matplotlib Axes, optional
+    :param title: title of the plot, defaults to None
+    :type title: str, optional
+    """
+    # assign the labels
     xlabels = labels if xlabels is None else xlabels
     ylabels = labels if ylabels is None else ylabels
+    # plot seaborn's heatmap with given parameters
     ax = sns.heatmap(results,xticklabels=xlabels, yticklabels=ylabels,ax=ax, square= results.shape[0] == results.shape[1])
     ax.set_title(f'pairwise distances' if title is None else title)
+
 
 def plot_transport_plan(plan,ax=None):
     plt.figure()
     sns.heatmap(plan)
     plt.show()
 
-def plot_emb(dists,method='umap',precomputed_emb=None,colors=None,symbols=None,ax=None, Cluster_ID=None,title=None,cmap="tab20",save_path=None,verbose=True,legend='Top',s=15,hue_order=None,annotation=None, linewidth=0.02,annotation_image_path=None):
+
+def plot_emb(dists,method='umap',precomputed_emb=None,colors=None,symbols=None,ax=None, 
+             Cluster_ID=None,title=None,cmap="tab20",save_path=None,verbose=True,legend='Top',s=15,
+             hue_order=None,annotation=None, linewidth=0.02,annotation_image_path=None):
+    """Visualize the embedding of a distance matrix using various reduction methods in form of a scatter plot.  
+
+    :param dists: distance matrix to plot the embeddings from of shape (n_samples, n_samples)
+    :type dists: numpy.ndarray or similar
+    :param method: dimensionality reduction method, defaults to 'umap'
+    :type method: "umap", "tsne", "diffusion", "fast_diffusion", "mds", "phate", optional
+    :param precomputed_emb: precomputed embeddings to plot of shape (n_samples, 2), defaults to None
+    :type precomputed_emb: numpy.ndarray or similar, optional
+    :param colors: class labels to use for coloring the points, defaults to None
+    :type colors: numpy.ndarray, list or similar, optional
+    :param symbols: labels to use for marker styles, defaults to None
+    :type symbols: numpy.ndarray, list or similar, optional
+    :param ax: axes on which to draw the embedding, defaults to None
+    :type ax: matplotlib Axes, optional
+    :param Cluster_ID: boolean array indicating whether a point is a centroid/ medoid/ representative point of a cluster or not, defaults to None
+    :type Cluster_ID: numpy.ndarray of booleans or similar, optional
+    :param title: title of the plot, defaults to None
+    :type title: str, optional
+    :param cmap: colormap used for coloring the points, defaults to "tab20"
+    :type cmap: str, list, dict or matplotlib.colors.Colormap, optional
+    :param save_path: file path to save generated plot (not saved if None), defaults to None
+    :type save_path: str, optional
+    :param verbose: display title if True, defaults to True
+    :type verbose: bool, optional
+    :param legend: defines where to place the legend, defaults to 'Top'
+    :type legend: "Top", "Side", optional
+    :param s: marker size used in the plot, defaults to 15
+    :type s: int, optional
+    :param hue_order: order in which class labels are presented in legend, defaults to None
+    :type hue_order: list of str or similar, optional
+    :param annotation: text to display on each point, defaults to None
+    :type annotation: list of str, optional
+    :param linewidth: linewidth of marker edges, defaults to 0.02
+    :type linewidth: float, optional
+    :param annotation_image_path: list of image paths to overlay on plot, defaults to None
+    :type annotation_image_path: list of str, optional
+    :return: 2D embedding for plotting
+    :rtype: numpy.ndarray
+    """
+    
+    # compute the embedding with the provided method if no precomputed embedding is given
     if precomputed_emb is None:
+        
+        # use UMAP
         if method == 'umap':
             with warnings.catch_warnings():
-                #unfortunatly UMAP throws a warning that transformations of data points is not possible using precomputed metrics. We do not think that this is a relveant information to users and the warning can not be masked through parameters, so we catch it manually here.
+                # unfortunatly UMAP throws a warning that transformations of data points is not possible using precomputed metrics. 
+                # We do not think that this is a relveant information to users and the warning can not be masked through parameters, 
+                # so we catch it manually here.
                 warnings.simplefilter("ignore",category=UserWarning)
                 reducer = umap.UMAP(metric='precomputed') #,n_neighbors=10
                 emb = reducer.fit_transform(dists)
+                
+        # use t-SNE
         elif method == 'tsne':
             emb = TSNE(n_components=2, metric='precomputed', learning_rate='auto', init='random', perplexity=3).fit_transform(dists)
+            
+        # use diffusion map
         elif method == "diffusion":
             mydmap = diffusion_map.DiffusionMap.from_sklearn(n_evecs = 2, epsilon =0.1, alpha = 0.5, k=64)
-
             emb = mydmap.fit_transform(dists /dists.max())
             emb=emb[:,[0,1]]
 
+        # use fast diffusion map
         elif method == "fast_diffusion":
             epsilon = 0.1
             scaled_matrix = dists ** 2 / epsilon
-
             # take negative exponent of scaled matrix to create Isotropic kernel
-            kernel = np.exp(scaled_matrix)
+            kernel = np.exp(-scaled_matrix)
             D_inv = np.diag(1 / kernel.sum(1))
             diff = np.dot(D_inv, kernel)
             eigenvals, eigenvectors = np.linalg.eig(diff)
-            print(eigenvals)
             sort_idx = np.argsort(eigenvals)[::-1]
-            #eigenvalues = eigenvals[sort_idx]
             eigenvectors = eigenvectors[sort_idx]
-            print(eigenvectors.shape)
-            emb = np.transpose(eigenvectors[[0,1],:])
-            #emb=emb[:,[0,1]]
+            emb = np.transpose(eigenvectors[[0,1],:]) # TODO: error fixed but result looks wrong
 
+        # use multidimensional scaling
         elif method == "mds":
             mds = manifold.MDS(n_components=2, dissimilarity="precomputed",normalized_stress='auto')
             emb = mds.fit_transform(dists)
-        elif method == "phate":
-            phate_op = phate.PHATE(knn_dist="precomputed_distance",verbose=0)
-            emb = phate_op.fit_transform(dists,)       
+            
+        # # use phate
+        # elif method == "phate":
+        #     phate_op = phate.PHATE(knn_dist="precomputed_distance",verbose=0)
+        #     emb = phate_op.fit_transform(dists) TODO: can this be removed? causes problems with numpy versions
+            
+    # use given embedding if provided
     else:
         emb = precomputed_emb
-        #emb = results.embedding_ 
 
-    
-    df_embed = pd.DataFrame(emb,columns=['x','y'])
-    
+    # create dataframe with data points and metadata
+    df_embed = pd.DataFrame(emb,columns=['x','y'])    
     df_embed['Classes']=colors
     df_embed['Condition']=symbols
     df_embed['annotation'] = annotation
-
-    #size = None if Cluster_ID is None else [6 if is_cluster else 1 for is_cluster in Cluster_ID]
-    #df_embed['size'] = size
-    df_embed['Type'] =  None if Cluster_ID is None else ["Cluster" if is_cluster else "Trial" for is_cluster in Cluster_ID]
-    type_to_size = {
-        "Cluster": 50,
-        "Trial": 7,
-        None: 3 if annotation_image_path is None else 200
-    }
-    
+    df_embed['Type'] = None if Cluster_ID is None else ["Cluster" if is_cluster else "Trial" for is_cluster in Cluster_ID]
+    type_to_size = {"Cluster": 50,"Trial": 7, None: 3 if annotation_image_path is None else 200}
+        
     if ax is None:
-        fig = plt.figure(figsize=(5,5)) if annotation_image_path is None else plt.figure(figsize=(30,7))
-        #ax = fig.add_subplot(111, aspect='equal')
+        _, ax = plt.subplots(figsize=(5,5)) if annotation_image_path is None else plt.subplots(figsize=(30,7))
 
-    ax = sns.scatterplot(df_embed, x='x',y='y',edgecolor="white",alpha=1.0,s=s,linewidth=linewidth,hue='Classes' if colors is not None else None, style='Condition' if symbols is not None else None, size="Type" if Cluster_ID is not None else None,sizes=type_to_size if Cluster_ID is not None else None, ax=ax,palette=cmap, legend = False if not legend else 'auto',hue_order=hue_order)
+    # create scatter plot
+    ax = sns.scatterplot(df_embed, x='x',y='y',edgecolor="white",alpha=1.0,s=s,linewidth=linewidth,
+                         hue='Classes' if colors is not None else None, style='Condition' if symbols is not None else None, 
+                         size="Type" if Cluster_ID is not None else None,sizes=type_to_size if Cluster_ID is not None else None, 
+                         ax=ax,palette=cmap, legend = False if not legend else 'auto',hue_order=hue_order)
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
-
-
-    
-    #plt.show()
     plt.subplots_adjust(top=10/12)
 
+    # display title if desired
     if verbose:
         ax.set_title(f'{method} projection' if title is None else title) #plt.gca().set_aspect('equal', 'datalim')
 
+    # place legend where/ if desired
     if legend=='Top':
-        ax.legend(loc='upper center', bbox_to_anchor=(0., 1.075,0.9, .10) if len(np.unique(colors))>5 else (0., 1.05,0.9, .075),  prop=dict(weight='bold'),handletextpad=0.1,frameon=False, shadow=False, ncol=4 if len(np.unique(colors))>5 else 5 ,mode="expand")
+        ax.legend(loc='upper center', bbox_to_anchor=(0., 1.075,0.9, .10) if len(np.unique(colors))>5 else (0., 1.05,0.9, .075),  
+                  prop=dict(weight='bold'),handletextpad=0.1,frameon=False, shadow=False, ncol=4 if len(np.unique(colors))>5 else 5, 
+                  mode="expand")
     elif legend=='Side':
         plt.legend(frameon=False)
         sns.move_legend(ax, "right", bbox_to_anchor=(1.5, 0.5))
-        
-
-
-
-    #TODO move
-    from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-    from PIL import Image
-
+    
+    # load, crop and resize images
     def crop(im, w, h):
         width, height = im.size # Get dimensions
         left = (1-w)/2*width
@@ -203,8 +302,6 @@ def plot_emb(dists,method='umap',precomputed_emb=None,colors=None,symbols=None,a
 
     def getImage(path, zoom=0.5,w=0.6,h=0.72): #0.04
         return OffsetImage(np.asarray(crop(Image.open(path),w,h)), zoom=zoom)
-    
-    
 
     if annotation_image_path is not None:
         if "histo" in annotation_image_path[0]:
@@ -220,7 +317,6 @@ def plot_emb(dists,method='umap',precomputed_emb=None,colors=None,symbols=None,a
             scaling = 0.4
             width = 0.8
             height = 0.8
-            #print("unknown images, no scaling")
 
         for p in range(0,df_embed.shape[0]):
             ab = AnnotationBbox(getImage(annotation_image_path[p],zoom=scaling,w=width,h=height), 
@@ -231,21 +327,53 @@ def plot_emb(dists,method='umap',precomputed_emb=None,colors=None,symbols=None,a
                                 box_alignment=(0,0),pad=0.1)
             ax.add_artist(ab)
 
+    # add text labels
     # add annotations one by one with a loop, credit https://python-graph-gallery.com/46-add-text-annotation-on-scatterplot/
     if annotation is not None:
         for p in range(0,df_embed.shape[0]):
             ax.text(df_embed.x[p], df_embed.y[p], df_embed.annotation[p], horizontalalignment='left', size='x-small', color='black') #, weight='semibold')
 
+    # save plot if desired
     if save_path is not None:
         print(save_path)
         ax.figure.savefig(save_path)
 
     return emb
 
-def plot_clustermap(dist,labels, ax=None, cluster=True, method="average",title=None,dist_name="",log=False,save_path=None,cmap="tab20",hue_order=None,annotation=False):
-    #Creating list of colors for conds
+
+def plot_clustermap(dist, labels, cluster=True, method="average",title=None,dist_name="",log=False,save_path=None,cmap="tab20",hue_order=None,annotation=False):
+    """Visualize a given distance matrix as a hierarchically-clustered heatmap (clustermap).
+
+    :param dists: distance matrix of shape (n_samples, n_samples)
+    :type dists: numpy.ndarray
+    :param labels: list of labels of each sample
+    :type labels: numpy.ndarray
+    :param cluster: whether to perform hierarchical clustering or not, defaults to True
+    :type cluster: bool, optional
+    :param method: linkage method to use for hierarchical clustering, defaults to "average"
+    :type method: str, optional
+    :param title: title of the plot, defaults to None
+    :type title: str, optional
+    :param dist_name: name of the distance measure for the title of the colorbar, defaults to ""
+    :type dist_name: str, optional
+    :param log: whether to apply a logarithmic scaling to the distance matrix, defaults to False
+    :type log: bool, optional
+    :param save_path: file path to save generated plot (not saved if None), defaults to None
+    :type save_path: str, optional
+    :param cmap: color palette for clustermap, defaults to "tab20"
+    :type cmap: str, optional
+    :param hue_order: custom ordering of class labels for color mapping, defaults to None
+    :type hue_order: list, optional
+    :param annotation: whether to display sample labels on x-axis, defaults to False
+    :type annotation: bool, optional
+    :return: linkage matrix from hierarchical or None if clustering = True
+    :rtype: numpy.ndarray or None
+    """
+    # creating list of colors for conds
     unique_inds = np.unique(labels, return_index=True)[1]
-    unique_labels = np.asarray([labels[index] for index in sorted(unique_inds)] ).tolist() if hue_order is None else hue_order
+    unique_labels = np.asarray([labels[index] for index in sorted(unique_inds)]).tolist() if hue_order is None else hue_order
+    
+    # define color palette
     if isinstance(cmap,str):
         cmap = sns.color_palette(palette=cmap,n_colors=len(unique_labels))
         colors = [cmap[unique_labels.index(l)] for l in labels]
@@ -254,113 +382,33 @@ def plot_clustermap(dist,labels, ax=None, cluster=True, method="average",title=N
 
     dist = np.copy(dist)
 
+    # compute hierarchical clustering if cluster == True
     if cluster:
         dist[np.eye(len(dist),dtype=bool)] = 0  
-        linkage =  hc.linkage(sp.distance.squareform(dist), method=method, optimal_ordering=True)
+        linkage = hc.linkage(sp.distance.squareform(dist), method=method, optimal_ordering=True)
     else:
         linkage = None
 
-    norm = None
-    if log:
-        norm = LogNorm()
-        dist[dist<=0] = np.min(dist[dist>0])
-        #dist[dist>0] = np.log(dist[dist>0])
-        
-        #dist = np.log2(dist)
-        
-        #dist = np.nan_to_num(dist, nan=np.nanmin(dist))
-        #dist[dist==0] = 50 #np.amin(dist)
-        #dist_name = "log " + dist_name
-    #dist=squareform(dist)
-
-    
-    # convert the redundant n*n square matrix form into a condensed nC2 array
-    #print(dist.shape)
-    #dist = ssd.squareform(dist) 
-    #print(dist.shape)
-    
-    #
-
-    
-    fig = sns.clustermap(dist, figsize=(5,5),row_cluster=cluster, col_cluster=cluster, row_linkage=linkage ,col_linkage=linkage, dendrogram_ratio=0.15,
-            row_colors=colors, col_colors=colors,method=method, cmap=sns.cm.rocket_r,
-            #cbar_pos=(.2, 0, .2, .02),cbar_kws={"label":dist_name, "orientation":'horizontal'},yticklabels=False,xticklabels=False) #,)
-            cbar_pos=(0.05, 0.1, .1, .02),cbar_kws={"orientation":'horizontal'},yticklabels=False,xticklabels=annotation,norm=norm)
-    #fig.ax_heatmap.set(xlabel = "Graphs",ylabel ="Graphs")
-
-    fig.ax_heatmap.tick_params(right=False, bottom=False if annotation is False else True) #sounds really stupid but annotation might be non-boolean
-
-
-    fig.ax_col_dendrogram.set_visible(False)
-
-    fig.ax_cbar.set_title(dist_name)
-
-    #if cluster:
-    #    fig.ax_heatmap.set_title(f'{method}')
-    
-
-    #handles = [Patch(facecolor=cmap[unique_labels.tolist().index(l)]) for l in unique_labels]
-    #plt.legend(handles, unique_labels, title='Classes',frameon=False,
-    #       bbox_to_anchor=(-0.03, 0.01), bbox_transform=plt.gcf().transFigure, loc='lower left')
-    
-    #h = [plt.plot([],[], color=cmap[c], marker="s", ms=c, ls="")[0] for c in range(len(unique_labels))]
-    
-    #fig.ax_heatmap.legend(handles=h, labels=list(unique_labels), title="Conditions")
-
-    #for hidden in h:
-    #    hidden.set_visible(False)
-    if title is not None:
-        fig.fig.suptitle(title)
-    #fig.fig.tight_layout()
-    plt.show()
-    
-    if save_path is not None:
-        fig.figure.savefig(save_path)
-
-    return linkage
-
-
-def hier_clustering(dist,labels, ax=None, cluster=True, method="average",title=None,dist_name="",log=False,save_path=None,cmap="tab20",hue_order=None,annotation=False):
-    #Creating list of colors for conds
-    unique_inds = np.unique(labels, return_index=True)[1]
-    unique_labels = np.asarray([labels[index] for index in sorted(unique_inds)] ).tolist() if hue_order is None else hue_order
-    if isinstance(cmap,str):
-        cmap = sns.color_palette(palette=cmap,n_colors=len(unique_labels))
-        colors = [cmap[unique_labels.index(l)] for l in labels]
-    else:
-        colors = [cmap[l] for l in labels]
-
-    dist = np.copy(dist)
-
-    if cluster:
-        dist[np.eye(len(dist),dtype=bool)] = 0  
-        linkage =  hc.linkage(sp.distance.squareform(dist), method=method, optimal_ordering=True)
-    else:
-        linkage = None
-
+    # apply log scaling if log = True (useful when data spans a broad range of values)
     norm = None
     if log:
         norm = LogNorm()
         dist[dist<=0] = np.min(dist[dist>0])
 
-    
+    # create clustermap
     fig = sns.clustermap(dist, figsize=(5,5),row_cluster=cluster, col_cluster=cluster, row_linkage=linkage ,col_linkage=linkage, dendrogram_ratio=0.15,
             row_colors=colors, col_colors=colors,method=method, cmap=sns.cm.rocket_r,
-            #cbar_pos=(.2, 0, .2, .02),cbar_kws={"label":dist_name, "orientation":'horizontal'},yticklabels=False,xticklabels=False) #,)
             cbar_pos=(0.05, 0.1, .1, .02),cbar_kws={"orientation":'horizontal'},yticklabels=False,xticklabels=annotation,norm=norm)
 
     fig.ax_heatmap.tick_params(right=False, bottom=False if annotation is False else True) #sounds really stupid but annotation might be non-boolean
-
-
     fig.ax_col_dendrogram.set_visible(False)
-
     fig.ax_cbar.set_title(dist_name)
 
     if title is not None:
         fig.fig.suptitle(title)
-
     plt.show()
     
+    # save plot if desired
     if save_path is not None:
         fig.figure.savefig(save_path)
 

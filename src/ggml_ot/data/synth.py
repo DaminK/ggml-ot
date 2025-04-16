@@ -8,7 +8,7 @@ import numpy as np
 
 import seaborn as sns
 import matplotlib.pyplot as plt
-from ggml_ot.plot import plot_emb, hier_clustering
+from ggml_ot.plot import plot_emb, plot_clustermap
 
 class synthetic_Dataset(Dataset):
     #The __init__ function is run once when instantiating the Dataset object.
@@ -40,7 +40,7 @@ class synthetic_Dataset(Dataset):
     def get_raw_distributions(self):
         return self.distributions,self.distributions_labels
     
-    def compute_OT_on_dists(self,ground_metric = None,w = None,legend="Side"):
+    def compute_OT_on_dists(self,ground_metric = None,w = None,legend="Side", plot = True):
         D = np.zeros((len(self.distributions),len(self.distributions)))
         for i,distribution_i in enumerate(self.distributions):
             for j,distribution_j in enumerate(self.distributions):
@@ -51,10 +51,11 @@ class synthetic_Dataset(Dataset):
                 else:
                     D[i,j]=D[j,i]
         
-        hardcoded_symbols = [i % 10 for i in range(len(self.distributions))]
-        plot_emb(D,method='umap',colors=self.distributions_labels,symbols=hardcoded_symbols,legend=legend,title="UMAP",verbose=True,cmap=sns.cubehelix_palette(as_cmap=True),annotation=None,s=200)
+        if plot:
+            hardcoded_symbols = [i % 10 for i in range(len(self.distributions))]
+            plot_emb(D,method='umap',colors=self.distributions_labels,symbols=hardcoded_symbols,legend=legend,title="UMAP",verbose=True,cmap=sns.cubehelix_palette(as_cmap=True),annotation=None,s=200)
+            plot_clustermap(D,self.distributions_labels, cmap=sns.cubehelix_palette(as_cmap=False,n_colors=len(np.unique(self.distributions_labels))),dist_name="W_θ")
 
-        hier_clustering(D,self.distributions_labels, ax=None,cmap=sns.cubehelix_palette(as_cmap=False,n_colors=len(np.unique(self.distributions_labels))),dist_name="W_θ")
         return D
     
 

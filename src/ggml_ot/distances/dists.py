@@ -1,11 +1,9 @@
 import torch
-import torchvision
-import torch.nn as nn
-from torchvision import datasets, models, transforms
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 import scipy
-from ggml_ot.plot import plot_ellipses, hier_clustering
+from ggml_ot.plot import plot_ellipses, plot_clustermap, plot_emb
+import ot
 
 #wrapper for precomputed distance matrix
 #only execute once values are accessed
@@ -44,8 +42,6 @@ class Computed_Distances():
             dist = pairwise_mahalanobis_distance_npy(self.points[entry_nan_index[0],:],self.points[entry_nan_index[1],:],w=self.theta, numThreads = n_threads)
             self.data[np.ix_(entry_nan_index[0],entry_nan_index[1])] = dist 
 
-            computed_percentage = len(entry_nan_index[0])/len(ranges[0])*len(entry_nan_index[1])/len(ranges[1])
-            #print(f"loaded {1-computed_percentage:,.2f} of {len(entry_nan_index[0])*len(entry_nan_index[0])} distances")
             return self.data[slice_]
 
         else:
@@ -73,9 +69,9 @@ def compute_OT(distributions,labels,precomputed_distances=None,ground_metric = N
     
     hardcoded_symbols = None #[i % 4 for i in range(len(distributions))]
     plot_emb(D,method='umap',colors=labels,symbols=hardcoded_symbols,legend=legend,title="UMAP",verbose=True,annotation=None,s=200)
-    plot_emb(D,method='diffusion',colors=labels,symbols=hardcoded_symbols,legend=legend,title="DiffMap",verbose=True,annotation=None,s=200)
+    # plot_emb(D,method='diffusion',colors=labels,symbols=hardcoded_symbols,legend=legend,title="DiffMap",verbose=True,annotation=None,s=200)
 
-    hier_clustering(D,labels, ax=None,dist_name="W_θ")
+    plot_clustermap(D,labels,dist_name="W_θ")
     return D
 
 

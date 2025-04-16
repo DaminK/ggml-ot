@@ -5,7 +5,8 @@ from sklearn.metrics.pairwise import pairwise_distances
 import torch
 import tqdm as tqdm
 import time
-
+import matplotlib.pyplot as plt
+from .plot import plot_ellipses
 
 
 def ggml(dataloader,a=10,l=0.1,k=5,lr=0.01,norm='fro',max_iterations=30,diagonal=False,random_init=True,fixed_init=None,verbose=True,save_path=None,save_i_iterations=None,plot_i_iterations=None,dataset=None,n_threads=64):
