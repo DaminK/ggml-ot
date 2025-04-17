@@ -3,27 +3,20 @@ import sys
 sys.path.insert(0, '..')
 #for local import of parent dict
 
-
-
 from tqdm import tqdm
-import os
 import numpy as np
 import scanpy as sc
-import anndata as ad
 
 #synth Data
 from .util import create_t_triplets
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
 
 #Optimal Transport
 import ot
-from ggml.distances import pairwise_mahalanobis_distance_npy
+from ggml_ot.distances import pairwise_mahalanobis_distance_npy
 
 #Plotting
-from ggml.plot import plot_distribution,plot_emb, hier_clustering
-import matplotlib.pyplot as plt
-import seaborn as sns
+from ggml_ot.plot import plot_emb, plot_clustermap
 
 from sklearn.decomposition import PCA
 import scipy as sp
@@ -60,7 +53,7 @@ class scRNA_Dataset(Dataset):
         return (self.distributions, self.distributions_labels, self.datapoints, self.datapoints_labels,  self.patient_labels )
 
     
-    def compute_OT_on_dists(self,ground_metric = None,w = None,symbols=None,n_threads=64):
+    def compute_OT_on_dists(self,ground_metric = None,w = None,symbols=None,n_threads=64, plot = True):
         D = np.zeros((len(self.distributions),len(self.distributions)))
         for i,distribution_i in enumerate(tqdm(self.distributions)):
             for j,distribution_j in enumerate(self.distributions):
@@ -72,14 +65,13 @@ class scRNA_Dataset(Dataset):
                     D[i,j] = ot.emd2([],[],M,numThreads=n_threads)
                 else:
                     D[i,j]=D[j,i]
-        
-        plot_emb(D,method='umap',colors=self.disease_labels,symbols=symbols,legend="Side",title="UMAP",verbose=True,annotation=None,s=200)
-        plot_emb(D,method='phate',colors=self.disease_labels,symbols=symbols,legend="Side",title="Phate",verbose=True,annotation=None,s=200)
-
-        hier_clustering(D,self.disease_labels, ax=None,dist_name="W_θ")
+        if plot:
+            plot_emb(D,method='umap',colors=self.disease_labels,symbols=symbols,legend="Side",title="UMAP",verbose=True,annotation=None,s=200)
+            #plot_emb(D,method='phate',colors=self.disease_labels,symbols=symbols,legend="Side",title="Phate",verbose=True,annotation=None,s=200)
+            plot_clustermap(D,self.disease_labels,dist_name="W_θ")
         return D
     
-def get_cells_by_patients(adata_path,patient_col="donor_id",label_col="reported_diseases",subsample_patient_ratio=0.25,n_cells=1.0,n_feats=None,filter_genes=False,**kwargs):
+def get_cells_by_patients(adata_path,patient_col="donor_id",label_col="reported_diseases",subsample_patient_ratio=0.25,n_cells=50,n_feats=None,filter_genes=False,**kwargs):
     adata = sc.read_h5ad(adata_path)
     string_class_labels = np.unique(adata.obs[label_col])
 
@@ -119,13 +111,13 @@ def get_cells_by_patients(adata_path,patient_col="donor_id",label_col="reported_
             p_arr = np.asarray(patient_adata.X.toarray(),dtype="f") 
             if n_feats is not None:
                 p_arr = pca.transform(p_arr)
-
+   
             distributions.append(p_arr)
             disease_labels.append(string_class_label)
             distributions_class.append(np.where(string_class_labels==string_class_label)[0][0])
             patient_labels.append(patient)
             celltype_node_label.append(list(patient_adata.obs['cell_type']))
-
+            
     points = np.concatenate(distributions) 
     point_labels = sum([[l] * len(D) for l,D in zip(disease_labels,distributions)],[]) 
 

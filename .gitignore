@@ -17,3 +17,5 @@
 
 .venv
 /poetry.toml
+
+*.h5ad
