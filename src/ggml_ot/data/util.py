@@ -1,8 +1,4 @@
-import pandas as pd
 import numpy as np
-
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 def create_triplets(distributions,labels):
     triplets = []
