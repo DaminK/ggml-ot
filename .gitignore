@@ -15,7 +15,8 @@
 /docs/site/*
 .mypy_cache
 
-.venv
-/poetry.toml
-
+.venv/*
+poetry.toml
+poetry.lock
 *.h5ad
+.ruff_cache/*
