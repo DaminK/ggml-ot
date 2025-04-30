@@ -43,7 +43,5 @@ pre-commit install
 
 If you use this code in your research, please cite the following paper:
 > Global Ground Metric Learning with Applications to scRNA data
->
 > Damin Kuehn and Michael T. Schaub, Department of Computer Science RWTH Aachen
->
-> Conference, Doi, Date?
+> Published at AISTATS2025 (DOI will follow)
