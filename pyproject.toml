@@ -5,7 +5,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Operating Systems :: OS Independent",
   "Development Status :: 5 - Production/Stable",
   "Framework :: Jupyter",
   "Framework :: Sphinx",
