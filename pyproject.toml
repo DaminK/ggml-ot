@@ -1,6 +1,6 @@
 [project]
 name = "ggml-ot"
-authors = [{ name = "Damin Kuehn", email = "damin.kuehn@rwth-aachen.de" }]
+authors = [{ name = "Damin Kuehn", email = "kuehn@cs.rwth-aachen.de" }]
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
@@ -36,7 +36,7 @@ Issues = "https://github.com/DaminK/ggml-ot/issues"
 
 [tool.poetry]
 name = "ggml-ot"
-version = "1.0.0"
+version = "0.0.9"
 description = "Global Ground Metric Learning"
 authors = ["Damin Kuehn <damin.kuehn@rwth-aachen.de>"]
 
