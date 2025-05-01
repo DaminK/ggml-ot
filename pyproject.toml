@@ -6,13 +6,12 @@ requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Development Status :: 5 - Production/Stable",
-  "Framework :: Jupyter",
   "Framework :: Sphinx",
   "Intended Audience :: Science/Research",
   "Intended Audience :: Healthcare Industry",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
   "Topic :: Scientific/Engineering :: Information Analysis",
-  "Topic :: Scientific/Engineering :: Medical Science Apps",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
   "tqdm (>=4.67.1,<5.0.0)",
