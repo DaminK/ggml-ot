@@ -78,7 +78,7 @@ def compute_OT(
     w=None,
     numThreads=32,
 ):
-   """Compute the Optimal Transport between distributions using precomputed distances, the mahalanobis
+    """Compute the Optimal Transport between distributions using precomputed distances, the mahalanobis
     distance or a different ground metric.
 
     :param distributions: distributions to compute the OT on of shape (num_distributions, num_points, num_features)
