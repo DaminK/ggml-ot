@@ -5,6 +5,7 @@ import scipy
 import ot
 import scipy.spatial as sp
 
+
 # wrapper for precomputed distance matrix
 # only execute once values are accessed
 class Computed_Distances:
@@ -167,7 +168,7 @@ def pairwise_mahalanobis_distance(X_i, X_j, w):
 
 
 def pairwise_mahalanobis_distance_npy(X_i, X_j=None, w=None, numThreads=32):
-    """ Compute the Mahalanobis distance between two distributions using w which can be a weight tensor
+    """Compute the Mahalanobis distance between two distributions using w which can be a weight tensor
     or a ground metric. If only X_i is given, the distance is computed between all pairs of X_i.
 
     :param X_i: distriubtion of shape (num_points n, num_features)
@@ -185,9 +186,7 @@ def pairwise_mahalanobis_distance_npy(X_i, X_j=None, w=None, numThreads=32):
     if X_j is None:
         # if w is a string, compute the distance using that metric
         if w is None or isinstance(w, str):
-            return pairwise_distances(
-                X_i, metric=w, n_jobs=numThreads
-            )
+            return pairwise_distances(X_i, metric=w, n_jobs=numThreads)
         # else, compute the mahalanobis distance
         else:
             if w.ndim == 2 and w.shape[0] == w.shape[1]:

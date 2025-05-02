@@ -45,7 +45,7 @@ def ShuffleSplit(
                 train_size=train_size,
                 random_state=0,
             )
-            print('shapes')
+            print("shapes")
             print(np.zeros(len(labels)).shape)
             print(labels.shape)
             print(distribution_labels.shape)
@@ -99,7 +99,7 @@ def knn_from_dists(
         test_to_train_dists = dists[np.ix_(test_index, train_index)]
 
         neigh = KNeighborsClassifier(
-            n_neighbors=n_neighbors, metric='precomputed', weights=weights
+            n_neighbors=n_neighbors, metric="precomputed", weights=weights
         )
         neigh.fit(train_dists, [labels[t] for t in train_index])
 
@@ -120,10 +120,10 @@ def silhouette_score_wrapper(dists, labels):
     # wrapper function as fill diagonal is only available as inplace operation. It is needed to catch cases where due to numerical errors the distance of a graph to itself may be very close to zero, but not zero which is required by sklearn silhoute score method
     zero_dia_dists = np.copy(dists)
     np.fill_diagonal(zero_dia_dists, 0)
-    return silhouette_score(zero_dia_dists, labels, metric='precomputed')
+    return silhouette_score(zero_dia_dists, labels, metric="precomputed")
 
 
-def compute_dists(Graphs, Graphs2=None, method='TiedOT'):
+def compute_dists(Graphs, Graphs2=None, method="TiedOT"):
     dist, plan = methods[method](Graphs, Graphs2)
     dist[dist < 0] = 0
     return dist
@@ -143,19 +143,19 @@ def plot_1split(predicted, true, title=None, ax=None):
     ax = sns.heatmap(
         cf_matrix,
         annot=True,  # fmt='.0',
-        cmap='Blues',
+        cmap="Blues",
         xticklabels=annot_labels,
         yticklabels=annot_labels,
         ax=ax,
-        fmt='g',
+        fmt="g",
     )
-    ax.set(xlabel='Predicted Label', ylabel='True Label')
+    ax.set(xlabel="Predicted Label", ylabel="True Label")
     ax.set_title(title)
 
 
 def plot_table(df, tranpose=False):
     format_df = df
-    format_df.set_index('method', inplace=True)
+    format_df.set_index("method", inplace=True)
     if tranpose:
         format_df = format_df.transpose()
     display(format_df)
@@ -163,7 +163,7 @@ def plot_table(df, tranpose=False):
         format_df.to_latex(
             index=True,
             # formatters={"name": str.upper},
-            float_format='{:.2f}'.format,
+            float_format="{:.2f}".format,
         )
     )
 
@@ -172,7 +172,7 @@ def VI(
     labels1: npt.NDArray[np.int32],
     labels2: npt.NDArray[np.int32],
     torch: bool = True,
-    device: str = 'cpu',
+    device: str = "cpu",
     return_split_merge: bool = False,
 ):
     """

@@ -1,7 +1,7 @@
 ## Import the usual libraries
 import sys
 
-sys.path.insert(0, '..')
+sys.path.insert(0, "..")
 # for local import of parent dict
 
 import numpy as np
@@ -21,7 +21,7 @@ from sklearn.decomposition import PCA
 
 class scRNA_Dataset(Dataset):
     """A dataset for handling single-cell RNA-seq data, generating triplets and computing OT distances.
-    
+
     :ivar distributions: list of 2D arrays representing the distributions
     :vartype distributions: list of numpy.ndarray
     :ivar distributions_labels: class labels for each distribution
@@ -39,6 +39,7 @@ class scRNA_Dataset(Dataset):
     :ivar triplets: list of triplet indices used for training
     :vartype triplets: array-like of tuples
     """
+
     def __init__(self, *args, **kwargs):
         # Generate syntehtic data
         (
@@ -91,8 +92,15 @@ class scRNA_Dataset(Dataset):
             self.patient_labels,
         )
 
-    def compute_OT_on_dists(self, precomputed_distances = None, 
-                            ground_metric=None, w=None, legend='Side', plot=True, symbols = None):
+    def compute_OT_on_dists(
+        self,
+        precomputed_distances=None,
+        ground_metric=None,
+        w=None,
+        legend="Side",
+        plot=True,
+        symbols=None,
+    ):
         """Compute the Optimal Transport distances between all distributions.
 
         :param precomputed_distances: optional matrix of precomputed distances for computing the OT, defaults to None
@@ -108,34 +116,38 @@ class scRNA_Dataset(Dataset):
         :return: pairwise OT distance matrix
         :rtype: numpy.ndarray
         """
-        
+
         # compute the OT distances
-        D = compute_OT(self.distributions, precomputed_distances = precomputed_distances,
-                       ground_metric = ground_metric, w = w)
-        
+        D = compute_OT(
+            self.distributions,
+            precomputed_distances=precomputed_distances,
+            ground_metric=ground_metric,
+            w=w,
+        )
+
         # plot the embedding and clustermap if wanted
         if plot:
             plot_emb(
                 D,
-                method='umap',
+                method="umap",
                 colors=self.disease_labels,
                 symbols=symbols,
                 legend=legend,
-                title='UMAP',
+                title="UMAP",
                 verbose=True,
                 annotation=None,
                 s=200,
             )
-            plot_clustermap(D, self.disease_labels, dist_name='W_θ')
+            plot_clustermap(D, self.disease_labels, dist_name="W_θ")
         return D
 
 
 def get_cells_by_patients(
     adata_path,
-    patient_col='sample',
-    label_col='patient_group',
+    patient_col="sample",
+    label_col="patient_group",
     subsample_patient_ratio=1,
-    n_cells = 1000,
+    n_cells=1000,
     n_feats=None,
     filter_genes=True,
     **kwargs,
@@ -181,7 +193,7 @@ def get_cells_by_patients(
     # use PCA if given
     if n_feats is not None:
         global pca
-        pca = PCA(n_components=n_feats, svd_solver='auto')
+        pca = PCA(n_components=n_feats, svd_solver="auto")
         pca.fit(adata.X)
 
     # subsample patients
@@ -200,12 +212,12 @@ def get_cells_by_patients(
 
         if len(disease_label) > 1:
             print(
-                'Warning, sample_ids refer to cells with multiple disease labels (likely caused by referencing by patients and having multiple samples from different zones)'
+                "Warning, sample_ids refer to cells with multiple disease labels (likely caused by referencing by patients and having multiple samples from different zones)"
             )
 
         if patient_adata.n_obs >= n_cells:
             sc.pp.subsample(patient_adata, n_obs=n_cells)
-            p_arr = np.asarray(patient_adata.X.toarray(), dtype='f')
+            p_arr = np.asarray(patient_adata.X.toarray(), dtype="f")
             if n_feats is not None:
                 p_arr = pca.transform(p_arr)
 
@@ -215,7 +227,7 @@ def get_cells_by_patients(
                 np.where(string_class_labels == string_class_label)[0][0]
             )
             patient_labels.append(patient)
-            celltype_node_label.append(list(patient_adata.obs['cell_type']))
+            celltype_node_label.append(list(patient_adata.obs["cell_type"]))
 
     # collect individual points and their labels from the distributions
     points = np.concatenate(distributions)
