@@ -26,6 +26,7 @@ class synthetic_Dataset(Dataset):
     :ivar triplets: list of triplet indices used for training
     :vartype triplets: array-like of tuples
     """
+
     # The __init__ function is run once when instantiating the Dataset object.
     def __init__(self, *args, **kwargs):
         # Generate syntehtic data
@@ -58,21 +59,27 @@ class synthetic_Dataset(Dataset):
         i, j, k = self.triplets[idx]
         return np.stack(
             (self.distributions[i], self.distributions[j], self.distributions[k]),
-            dtype='f',
+            dtype="f",
         ), np.stack(
             (
                 self.distributions_labels[i],
                 self.distributions_labels[j],
                 self.distributions_labels[k],
             ),
-            dtype='f',
+            dtype="f",
         )
 
     def get_raw_distributions(self):
         return self.distributions, self.distributions_labels
-    
-    def compute_OT_on_dists(self, precomputed_distances = None, 
-                            ground_metric=None, w=None, legend='Side', plot=True):
+
+    def compute_OT_on_dists(
+        self,
+        precomputed_distances=None,
+        ground_metric=None,
+        w=None,
+        legend="Side",
+        plot=True,
+    ):
         """Compute the Optimal Transport distances between all distributions.
 
         :param precomputed_distances: optional matrix of precomputed distances for computing the OT, defaults to None
@@ -88,34 +95,38 @@ class synthetic_Dataset(Dataset):
         :return: pairwise OT distance matrix
         :rtype: numpy.ndarray
         """
-        
+
         # compute the OT distances
-        D = compute_OT(self.distributions, precomputed_distances = precomputed_distances,
-                       ground_metric = ground_metric, w = w)
+        D = compute_OT(
+            self.distributions,
+            precomputed_distances=precomputed_distances,
+            ground_metric=ground_metric,
+            w=w,
+        )
 
         # optionally plot the embedding and clustermap
         if plot:
             hardcoded_symbols = [i % 10 for i in range(len(self.distributions))]
             plot_emb(
                 D,
-                method='umap',
+                method="umap",
                 colors=self.distributions_labels,
                 symbols=hardcoded_symbols,
                 legend=legend,
-                title='UMAP',
+                title="UMAP",
                 verbose=True,
                 cmap=sns.cubehelix_palette(as_cmap=True),
                 annotation=None,
                 s=200,
             )
-            
+
             plot_clustermap(
                 D,
                 self.distributions_labels,
                 cmap=sns.cubehelix_palette(
                     as_cmap=False, n_colors=len(np.unique(self.distributions_labels))
                 ),
-                dist_name='W_θ',
+                dist_name="W_θ",
             )
 
         return D
@@ -123,20 +134,14 @@ class synthetic_Dataset(Dataset):
 
 def get_pointcloud(
     distribution_size=100,
-    #class_means=[0, 5, 10],
-    class_means = [5,10,15],
-    #offsets=[0, 5, 10, 15],
-    offsets = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27],
-    # shared_means_x=[],
-    # shared_means_y=[],
-    shared_means_x = [0, 40],
-    shared_means_y = [0, 50],
+    class_means=[5, 10, 15],
+    offsets=[1.5, 4.5, 7.5, 10.5, 13.5, 16.5, 19.5, 22.5, 25.5, 28.5],
+    shared_means_x=[0, 40],
+    shared_means_y=[0, 50],
     plot=True,
-    #varying_size=True,
     varying_size=False,
-    noise_scale=1000,
+    noise_scale=1,
     noise_dims=1,
-    #return_dict=True,
     return_dict=False,
     *args,
     **kwargs,
@@ -192,7 +197,6 @@ def get_pointcloud(
                 7.5 + offset, 12.5 + offset, size=(rand_size, noise_dims)
             )
             label_distribution_modes = label_distribution_modes + [1] * rand_size
-            
             # add "noise"
             for shared_mean_x, shared_mean_y in zip(shared_means_x, shared_means_y):
                 dim1 = np.concatenate(
@@ -218,7 +222,7 @@ def get_pointcloud(
             # stacked = np.stack((dim1,dim2),axis=-1)
             plotting_df.append(
                 pd.DataFrame(
-                    {'x': dim1, 'y': dim2[:, 0], 'class': label, 'distribution': i}
+                    {"x": dim1, "y": dim2[:, 0], "class": label, "distribution": i}
                 )
             )
 
@@ -232,8 +236,8 @@ def get_pointcloud(
         df = pd.concat(plotting_df, axis=0)
 
         plt.figure(figsize=(6, 5))
-        ax = sns.scatterplot(df, x='x', y='y', hue='class', style='distribution')
-        sns.move_legend(ax, 'center right', bbox_to_anchor=(1.3, 0.5))
+        ax = sns.scatterplot(df, x="x", y="y", hue="class", style="distribution")
+        sns.move_legend(ax, "center right", bbox_to_anchor=(1.3, 0.5))
 
         # xticks = ax.xaxis.get_major_ticks()
         # xticks[0].label1.set_visible(False)
@@ -247,15 +251,15 @@ def get_pointcloud(
         [[l] * len(D) for l, D in zip(distributions_labels, distributions)], []
     )  # flattens list of lists
 
-    # return as dictionary 
+    # return as dictionary
     if return_dict:
         data_dict = {}
         (
-            data_dict['distributions'],
-            data_dict['distributions_labels'],
-            data_dict['points'],
-            data_dict['point_labels'],
-            data_dict['patient'],
+            data_dict["distributions"],
+            data_dict["distributions_labels"],
+            data_dict["points"],
+            data_dict["point_labels"],
+            data_dict["patient"],
         ) = (
             distributions,
             distributions_labels,

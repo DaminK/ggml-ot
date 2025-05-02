@@ -200,7 +200,7 @@ def ggml(
     a: float = 10,
     l: float = 0.1,
     k: int = 5,
-    lr: float = 0.01,
+    lr: float = 0.02,
     norm: str = "fro",
     max_iterations: int = 30,
     diagonal: bool = False,

@@ -16,13 +16,13 @@ The resulting learned global ground metric enables more accurate OT distances, w
 
 ### Via pip
 
-```terminal
+```
 pip install ggml-ot
 ```
 
 ### Manual
 
-```terminal
+```
 git clone https://github.com/DaminK/ggml-ot
 cd ggml-ot
 pip install poetry
@@ -31,7 +31,7 @@ poetry lock && poetry install
 
 ### Development installation
 
-```terminal
+```
 git clone https://github.com/DaminK/ggml-ot
 cd ggml-ot
 pip install poetry
@@ -46,4 +46,4 @@ If you use this code in your research, please cite the following paper:
 >
 > Damin Kuehn and Michael T. Schaub, Department of Computer Science RWTH Aachen
 >
-> Conference, Doi, Date?
+> Published at AISTATS2025 (DOI will follow)

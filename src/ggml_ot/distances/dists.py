@@ -9,14 +9,14 @@ import scipy.spatial as sp
 # only execute once values are accessed
 class Computed_Distances:
     """Computes and caches mahalanobis distance on-demand.
-    
+
     :param points: points the distances are computed from
     :type points: array-like
     :param theta: weight vector for the mahalanobis distance
     :type theta: array-like
     :param n_threads: number of threads to use for the computation of the mahalanobis distance
     :type n_threads: int
-    
+
     :ivar data: holds the computed distances
     :vartype data: numpy.ndarray
     :ivar ndim: dimension of the data matrix
@@ -24,6 +24,7 @@ class Computed_Distances:
     :ivar shape: shape of the data matrix
     :vartype shape: tuple
     """
+
     def __init__(self, points, theta, n_threads=60):
         self.points = points
         self.theta = theta
@@ -77,7 +78,7 @@ def compute_OT(
     w=None,
     numThreads=32,
 ):
-    """Compute the Optimal Transport between distributions using precomputed distances, the mahalanobis 
+   """Compute the Optimal Transport between distributions using precomputed distances, the mahalanobis
     distance or a different ground metric.
 
     :param distributions: distributions to compute the OT on of shape (num_distributions, num_points, num_features)
@@ -117,15 +118,20 @@ def compute_OT(
                     )
                 # if a ground metric is given, compute the distance using that metric
                 elif ground_metric == "euclidean":
-                    M = sp.distance.cdist(distribution_i, distribution_j, metric='euclidean')
+                    M = sp.distance.cdist(
+                        distribution_i, distribution_j, metric="euclidean"
+                    )
                 elif ground_metric == "cosine":
-                    M = sp.distance.cdist(distribution_i, distribution_j, metric='cosine')
-                # the mahalanobis distance
+                    M = sp.distance.cdist(
+                        distribution_i, distribution_j, metric="cosine"
+                    )
+                # the Manhattan distance
                 elif ground_metric == "cityblock":
-                    M = sp.distance.cdist(distribution_i, distribution_j, metric='cityblock')
+                    M = sp.distance.cdist(
+                        distribution_i, distribution_j, metric="cityblock"
+                    )
                 # compute the Earth Mover's Distance (OT)
                 D[i, j] = ot.emd2([], [], M, numThreads=numThreads)
-                # TODO handle non mahalanobis distances
             else:
                 D[i, j] = D[j, i]
 
@@ -133,8 +139,8 @@ def compute_OT(
 
 
 def pairwise_mahalanobis_distance(X_i, X_j, w):
-    """ Compute the Mahalanobis distance between two distributions using w (with torch).
-    
+    """Compute the Mahalanobis distance between two distributions using w (with torch).
+
     :param X_i: distriubtion of shape (num_points n, num_features)
     :type X_i: torch.Tensor
     :param X_j: distriubtion of shape (num_points m, num_features)
@@ -144,7 +150,6 @@ def pairwise_mahalanobis_distance(X_i, X_j, w):
     :return: Mahalanobis distance between X_i and X_j of shape (num_points n, num_points m)
     :rtype: torch.Tensor
     """
-
     # Transform poins of X_i,X_j according to W
     if w.dim() == 1:
         # assume cov=0, scale dims by diagonal
@@ -161,42 +166,10 @@ def pairwise_mahalanobis_distance(X_i, X_j, w):
     )
 
 
-"""
-def pairwise_mahalanobis_distance_npy(X_i,X_j,w=None):
-    # W has shape dim x dim
-    # X_i, X_y have shape n x dim, m x dim
-    # return Mahalanobis distance between pairs n x m
-    if w is None:
-        w = np.identity(X_i.shape[-1])
-    else:
-        w = w.astype("f")
-
-    X_i = X_i.astype("f")
-    X_j = X_j.astype("f")
-
-    #Transform poins of X_i,X_j according to W
-    if w.ndim == 1:
-        #assume cov=0, scale dims by diagonal
-        #w = np.diag(w)
-        #proj_X_i = np.matmul(X_i,w)
-        #proj_X_j = np.matmul(X_j,w)
-
-        proj_X_i = X_i * w[None,:]
-        proj_X_j = X_j * w[None,:]
-
-    else:
-        w = np.transpose(w)
-        proj_X_i = np.matmul(X_i,w)
-        proj_X_j = np.matmul(X_j,w)
-
-    return np.linalg.norm(proj_X_i[:,np.newaxis,:]  -  proj_X_j[np.newaxis,:,:],axis=-1)  '
-"""
-
-
 def pairwise_mahalanobis_distance_npy(X_i, X_j=None, w=None, numThreads=32):
-    """ Compute the Mahalanobis distance between two distributions using w which can be a weight tensor 
+    """ Compute the Mahalanobis distance between two distributions using w which can be a weight tensor
     or a ground metric. If only X_i is given, the distance is computed between all pairs of X_i.
-    
+
     :param X_i: distriubtion of shape (num_points n, num_features)
     :type X_i: array-like
     :param X_j: distriubtion of shape (num_points m, num_features), defaults to None
@@ -204,8 +177,8 @@ def pairwise_mahalanobis_distance_npy(X_i, X_j=None, w=None, numThreads=32):
     :param w: weight tensor defining the mahalanobis distance of shape (rank k, num_features)
     or a string defining the metric to use, defaults to None
     :type w: array-like or str, optional
-    :return: Mahalanobis distance (or distance of given metric) between X_i and X_j or 
-    all pairs of X_i of shape (num_points n, num_points m) 
+    :return: Mahalanobis distance (or distance of given metric) between X_i and X_j or
+    all pairs of X_i of shape (num_points n, num_points m)
     :rtype: array-like
     """
     # if X_j is not provided, compute the distance between all pairs of X_i
@@ -219,11 +192,10 @@ def pairwise_mahalanobis_distance_npy(X_i, X_j=None, w=None, numThreads=32):
         else:
             if w.ndim == 2 and w.shape[0] == w.shape[1]:
                 return pairwise_distances(
-                    X_i, metric='mahalanobis', n_jobs=numThreads, VI=w
+                    X_i, metric="mahalanobis", n_jobs=numThreads, VI=w
                 )
             else:
                 X_j = X_i
-                
     # Transform points of X_i,X_j according to W
     if w is None or isinstance(w, str):
         return scipy.spatial.distance.cdist(X_i, X_j, metric=w)
