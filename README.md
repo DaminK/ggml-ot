@@ -1,6 +1,6 @@
 # GGML-OT
 
-<img src="https://github.com/user-attachments/assets/5c522e9b-8eb3-4b0a-8ae5-bb8671eba3d6" width="300" />
+<img src="https://github.com/DaminK/ggml-ot/blob/main/docs/source/images/icon_ggrouml.png?raw=True" width="300" />
 
 ## Abstract
 
@@ -16,13 +16,13 @@ The resulting learned global ground metric enables more accurate OT distances, w
 
 ### Via pip
 
-```
+```terminal
 pip install ggml-ot
 ```
 
 ### Manual
 
-```
+```terminal
 git clone https://github.com/DaminK/ggml-ot
 cd ggml-ot
 pip install poetry
@@ -31,7 +31,7 @@ poetry lock && poetry install
 
 ### Development installation
 
-```
+```terminal
 git clone https://github.com/DaminK/ggml-ot
 cd ggml-ot
 pip install poetry
