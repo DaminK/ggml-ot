@@ -67,6 +67,8 @@ D_ggml = data.compute_OT_on_dists(w=w_theta, plot=False)
 ggml_ot.plot_heatmap(D_ggml)
 ```
 
+![heatmap](images/synth_heatmap.png)
+
 ## Plotting embeddings of distance matrices
 [plot_emb](ggml_ot.plot_emb) visualizes the embedding of a distance matrix using various reduction methods in form of a scatter plot. Using this function on the scRNA dataset from the example from the [scRNA Dataset Tutorial](scRNA.md), the embedding can be visualized as follows:
 
@@ -90,4 +92,10 @@ emb = ggml_ot.plot_emb(
 
 ## Plotting the data as a clustermap
 
-This function visualizes distance matrices as a hierachically-clustered heatmap which helps reveal groupings by reordering the matrix to highlight clusters of similar values. [plot_clustermap](ggml_ot.plot_clustermap) is used in [ggml](ggml_ot.ggml) to visualize the learned distance matrix.
+This function visualizes distance matrices as a hierachically-clustered heatmap which helps reveal groupings by reordering the matrix to highlight clusters of similar values. [plot_clustermap](ggml_ot.plot_clustermap) is used in [ggml](ggml_ot.ggml) to visualize the learned distance matrix:
+
+```python
+linkage = ggml_ot.plot_clustermap(D_ggml, data.distributions_labels)
+```
+
+![clustermap](images/scRNA_clustermap2.png)
