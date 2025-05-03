@@ -17,16 +17,15 @@ from PIL import Image
 import scipy.spatial as sp
 import scipy.cluster.hierarchy as hc
 import warnings
-import torch
 
 
 def plot_distribution(
-    distributions, labels, projection=lambda x: x, title='Distributions', legend=True
+    distributions, labels, projection=lambda x: x, title="Distributions", legend=True
 ):
     """Visualizes high-dimensional distributions in 2D using optional PCS projection.
     The distributions are plotted as a scatter plot where the classes are distinguishable by color
     and the distributions by shape.
-    
+
     :param dists: distributions to plot of shape (num_distributions, num_points, num_features)
     :type dists: array-like
     :param labels: labels corresponding to distributions of shape (num_distributions)
@@ -49,10 +48,10 @@ def plot_distribution(
     # apply PCA if distributions have more than 2 dimensions
     dim = distributions.shape[-1]
     if dim > 2:
-        print('PCA')
+        print("PCA")
         print(distributions.shape)
         flat_dists = projection(distributions.reshape(-1, dim))
-        pca = PCA(n_components=2, svd_solver='full')
+        pca = PCA(n_components=2, svd_solver="full")
         pca.fit_transform(flat_dists)
 
     # apply projection and PCA to projected distributions
@@ -66,29 +65,29 @@ def plot_distribution(
         dfList_projected.append(
             pd.DataFrame(
                 {
-                    'x': stacked_projected[:, 0],
-                    'y': stacked_projected[:, 1],
-                    'class': str(l.item()),
-                    'dist': i % offset,
+                    "x": stacked_projected[:, 0],
+                    "y": stacked_projected[:, 1],
+                    "class": str(l.item()),
+                    "dist": i % offset,
                 }
             )
-        ) # TODO: correct offset variable
+        )  # TODO: correct offset variable
         i += 1
 
     # visualize in scatter plot
     df_projected = pd.concat(dfList_projected, axis=0)
     plt.figure(figsize=(6, 6))
     ax = sns.scatterplot(
-        df_projected, x='x', y='y', hue='class', style='dist', alpha=0.5
+        df_projected, x="x", y="y", hue="class", style="dist", alpha=0.5
     )
     if legend:
-        sns.move_legend(ax, 'center right', bbox_to_anchor=(1.3, 0.5))
+        sns.move_legend(ax, "center right", bbox_to_anchor=(1.3, 0.5))
     else:
         ax.get_legend().remove()
     ax.set_title(title)
 
 
-def plot_ellipses(covariances, ax=None, title='Ellipses'):
+def plot_ellipses(covariances, ax=None, title="Ellipses"):
     """Visualizes ellipses representing the covariance matrix.
 
     :param covariances: list of 2D covariance matrices or a single 2D covariance matrix
@@ -103,7 +102,7 @@ def plot_ellipses(covariances, ax=None, title='Ellipses'):
 
     # if no axes is provided, create one
     if ax is None:
-        print('Create fig')
+        print("Create fig")
         _, ax = plt.subplots(ncols=len(covariances), figsize=(3 * len(covariances), 3))
 
     max = 0
@@ -112,7 +111,7 @@ def plot_ellipses(covariances, ax=None, title='Ellipses'):
     if covariances.ndim == 2:
         covariances = [covariances]
 
-    colors = sns.color_palette('Set2', len(covariances))
+    colors = sns.color_palette("Set2", len(covariances))
 
     # compute and plot ellipses
     for i, covariance in enumerate(covariances):
@@ -133,7 +132,7 @@ def plot_ellipses(covariances, ax=None, title='Ellipses'):
         ell.set_clip_box(ax.bbox)
         ell.set_alpha(0.5)
         ax.add_artist(ell)
-        ax.set_aspect('equal')
+        ax.set_aspect("equal")
         max = np.max([max, v[0], v[1]])
 
     ax.set_xlim([-max, max])
@@ -149,11 +148,11 @@ def plot_ellipses(covariances, ax=None, title='Ellipses'):
 
 def plot_heatmap(
     results,
-    labels='auto',
+    labels="auto",
     xlabels=None,
     ylabels=None,
     ax=None,
-    title='Pairwise distances',
+    title="Pairwise distances",
 ):
     """Visualize a 2D matrix as a heatmap.
     It represents the values of an input matrix by colors.
@@ -193,17 +192,17 @@ def plot_transport_plan(plan):
 
 def plot_emb(
     dists,
-    method='umap',
+    method="umap",
     precomputed_emb=None,
     colors=None,
     symbols=None,
     ax=None,
     cluster_ID=None,
-    title='Embedding',
-    cmap='tab20',
+    title="Embedding",
+    cmap="tab20",
     save_path=None,
     verbose=True,
-    legend='Top',
+    legend="Top",
     s=15,
     hue_order=None,
     annotation=None,
@@ -253,27 +252,27 @@ def plot_emb(
     # compute the embedding with the provided method if no precomputed embedding is given
     if precomputed_emb is None:
         # use UMAP
-        if method == 'umap':
+        if method == "umap":
             with warnings.catch_warnings():
                 # unfortunatly UMAP throws a warning that transformations of data points is not possible using precomputed metrics.
                 # We do not think that this is a relveant information to users and the warning can not be masked through parameters,
                 # so we catch it manually here.
-                warnings.simplefilter('ignore', category=UserWarning)
-                reducer = umap.UMAP(metric='precomputed')  # ,n_neighbors=10
+                warnings.simplefilter("ignore", category=UserWarning)
+                reducer = umap.UMAP(metric="precomputed")  # ,n_neighbors=10
                 emb = reducer.fit_transform(dists)
 
         # use t-SNE
-        elif method == 'tsne':
+        elif method == "tsne":
             emb = TSNE(
                 n_components=2,
-                metric='precomputed',
-                learning_rate='auto',
-                init='random',
+                metric="precomputed",
+                learning_rate="auto",
+                init="random",
                 perplexity=3,
             ).fit_transform(dists)
 
         # use diffusion map
-        elif method == 'diffusion':
+        elif method == "diffusion":
             mydmap = diffusion_map.DiffusionMap.from_sklearn(
                 n_evecs=2, epsilon=0.1, alpha=0.5, k=64
             )
@@ -281,7 +280,7 @@ def plot_emb(
             emb = emb[:, [0, 1]]
 
         # use fast diffusion map
-        elif method == 'fast_diffusion':
+        elif method == "fast_diffusion":
             maxim = np.max(dists)
             epsilon = maxim * 0.7
             print(epsilon)
@@ -293,13 +292,12 @@ def plot_emb(
             eigenvals, eigenvectors = np.linalg.eig(diff)
             sort_idx = np.argsort(eigenvals)[::-1]
             eigenvectors = eigenvectors[sort_idx]
-            emb = np.transpose(
-                eigenvectors[[0, 1], :])
+            emb = np.transpose(eigenvectors[[0, 1], :])
 
         # use multidimensional scaling
-        elif method == 'mds':
+        elif method == "mds":
             mds = manifold.MDS(
-                n_components=2, dissimilarity='precomputed', normalized_stress='auto'
+                n_components=2, dissimilarity="precomputed", normalized_stress="auto"
             )
             emb = mds.fit_transform(dists)
 
@@ -313,18 +311,18 @@ def plot_emb(
         emb = precomputed_emb
 
     # create dataframe with data points and metadata
-    df_embed = pd.DataFrame(emb, columns=['x', 'y'])
-    df_embed['Classes'] = colors
-    df_embed['Condition'] = symbols
-    df_embed['annotation'] = annotation
-    df_embed['Type'] = (
+    df_embed = pd.DataFrame(emb, columns=["x", "y"])
+    df_embed["Classes"] = colors
+    df_embed["Condition"] = symbols
+    df_embed["annotation"] = annotation
+    df_embed["Type"] = (
         None
         if cluster_ID is None
-        else ['Cluster' if is_cluster else 'Trial' for is_cluster in cluster_ID]
+        else ["Cluster" if is_cluster else "Trial" for is_cluster in cluster_ID]
     )
     type_to_size = {
-        'Cluster': 50,
-        'Trial': 7,
+        "Cluster": 50,
+        "Trial": 7,
         None: 3 if annotation_image_path is None else 200,
     }
 
@@ -338,19 +336,19 @@ def plot_emb(
     # create scatter plot
     ax = sns.scatterplot(
         df_embed,
-        x='x',
-        y='y',
-        edgecolor='white',
+        x="x",
+        y="y",
+        edgecolor="white",
         alpha=1.0,
         s=s,
         linewidth=linewidth,
-        hue='Classes' if colors is not None else None,
-        style='Condition' if symbols is not None else None,
-        size='Type' if cluster_ID is not None else None,
+        hue="Classes" if colors is not None else None,
+        style="Condition" if symbols is not None else None,
+        size="Type" if cluster_ID is not None else None,
         sizes=type_to_size if cluster_ID is not None else None,
         ax=ax,
         palette=cmap,
-        legend=False if not legend else 'auto',
+        legend=False if not legend else "auto",
         hue_order=hue_order,
     )
     ax.xaxis.set_visible(False)
@@ -362,22 +360,22 @@ def plot_emb(
         ax.set_title(title)  # plt.gca().set_aspect('equal', 'datalim')
 
     # place legend where/ if desired
-    if legend == 'Top':
+    if legend == "Top":
         ax.legend(
-            loc='upper center',
+            loc="upper center",
             bbox_to_anchor=(0.0, 1.075, 0.9, 0.10)
             if len(np.unique(colors)) > 5
             else (0.0, 1.05, 0.9, 0.075),
-            prop=dict(weight='bold'),
+            prop=dict(weight="bold"),
             handletextpad=0.1,
             frameon=False,
             shadow=False,
             ncol=4 if len(np.unique(colors)) > 5 else 5,
-            mode='expand',
+            mode="expand",
         )
-    elif legend == 'Side':
+    elif legend == "Side":
         plt.legend(frameon=False)
-        sns.move_legend(ax, 'right', bbox_to_anchor=(1.5, 0.5))
+        sns.move_legend(ax, "right", bbox_to_anchor=(1.5, 0.5))
 
     # load, crop and resize images
     def crop(im, w, h):
@@ -392,11 +390,11 @@ def plot_emb(
         return OffsetImage(np.asarray(crop(Image.open(path), w, h)), zoom=zoom)
 
     if annotation_image_path is not None:
-        if 'histo' in annotation_image_path[0]:
+        if "histo" in annotation_image_path[0]:
             scaling = 0.025
             width = 0.8
             height = 0.8
-        elif 'niche' in annotation_image_path[0]:
+        elif "niche" in annotation_image_path[0]:
             scaling = 0.45
             width = 0.6
             height = 0.75
@@ -410,8 +408,8 @@ def plot_emb(
             ab = AnnotationBbox(
                 getImage(annotation_image_path[p], zoom=scaling, w=width, h=height),
                 (df_embed.x[p], df_embed.y[p]),
-                xycoords='data',
-                boxcoords='offset points',
+                xycoords="data",
+                boxcoords="offset points",
                 frameon=False,
                 box_alignment=(0, 0),
                 pad=0.1,
@@ -426,9 +424,9 @@ def plot_emb(
                 df_embed.x[p],
                 df_embed.y[p],
                 df_embed.annotation[p],
-                horizontalalignment='left',
-                size='x-small',
-                color='black',
+                horizontalalignment="left",
+                size="x-small",
+                color="black",
             )
 
     # save plot if desired
@@ -443,12 +441,12 @@ def plot_clustermap(
     dists,
     labels,
     hier_clustering=True,
-    method='average',
+    method="average",
     title=None,
-    dist_name='',
+    dist_name="",
     log=False,
     save_path=None,
-    cmap='tab20',
+    cmap="tab20",
     hue_order=None,
     annotation=False,
 ):
@@ -525,7 +523,7 @@ def plot_clustermap(
         method=method,
         cmap=sns.cm.rocket_r,
         cbar_pos=(0.05, 0.1, 0.1, 0.02),
-        cbar_kws={'orientation': 'horizontal'},
+        cbar_kws={"orientation": "horizontal"},
         yticklabels=False,
         xticklabels=annotation,
         norm=norm,

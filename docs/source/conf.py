@@ -15,4 +15,5 @@ extensions = [
     "sphinx.ext.duration",
     "sphinx_autorun",
     "myst_parser",
+    "sphinx.ext.intersphinx",
 ]
