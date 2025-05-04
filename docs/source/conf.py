@@ -6,6 +6,7 @@ release = "0.0.1"
 
 html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "/")
 html_theme = "sphinx_rtd_theme"
+html_logo = "images/icon_ggrouml.png"
 
 master_doc = "index"
 
