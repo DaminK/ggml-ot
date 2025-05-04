@@ -12,11 +12,10 @@
    :toctree: generated/
 
     ggml
-    plot_emb
-    plot_heatmap
-    plot_clustermap
-    plot_distribution
-    plot_ellipses
     scRNA_Dataset
     synthetic_Dataset
+    plot_emb
+    plot_clustermap
+    plot_distribution
+
 ```

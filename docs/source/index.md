@@ -1,9 +1,9 @@
-# GGML-OT - Global Ground Metric Learning for Optimal Transport
+# ggml-ot - Improve Optimal Transport applications by Global Ground Metric Learning on Distribution Classes
 
-GGML-OT is a Python package for learning ground metrics to improve optimal transport analysis of single-cell RNA-seq data. It includes classification, clustering and visualization methods on synthetic and real scRNA-seq data.
+The Python package for "Global Ground Metric Learning with Applications to scRNA data" published at AISTATS2025. Learning a Global Metric as the Ground Metric of a Optimal Transport (OT) distance improves downstream-applications, such as classification, clustering and embeddings on synthetic and realworld scRNA-seq data. By learning a low-rank Mahalanobis distance between elements of distributions, GGML-OT learns interpretable low-dimensional subspaces that capture the class relations between distributions under OT. For scRNA-seq data containing patients at different disease stages, this corresponds to subspaces of the gene expression space realted to disease-related biological processes.
 
 ## Installation
-To get started, install GGML_OT via pip:
+To get started, install ggml-ot via pip:
 ```bash
 pip install ggml-ot
 ```
@@ -11,7 +11,7 @@ pip install ggml-ot
 ## Citation
 If you use this package in your research, please cite:
 ```
-Kühn & Schaub, __Global Ground Metric Learning with Applications to scRNA data__, AISTATS 2025.
+Kühn & Schaub, Global Ground Metric Learning with Applications to scRNA data, AISTATS 2025.
 ```
 
 ```{toctree}
