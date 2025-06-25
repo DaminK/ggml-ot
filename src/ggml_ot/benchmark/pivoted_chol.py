@@ -59,8 +59,8 @@ S = np.random.normal(size=[N, N])
 A = np.matmul(S.T, S)
 
 # Important to copy as diag may not be writable depending on np version
-get_diag = lambda: np.diag(A).copy()
-get_row = lambda i: A[i, :]
+get_diag = lambda: np.diag(A).copy()  # noqa
+get_row = lambda i: A[i, :]  # noqa
 R = pivoted_chol(get_diag, get_row, M=N)
 
 # R.T @ R is numerically equal to A.

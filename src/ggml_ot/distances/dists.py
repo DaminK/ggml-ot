@@ -6,8 +6,6 @@ import ot
 import scipy.spatial as sp
 
 
-# wrapper for precomputed distance matrix
-# only execute once values are accessed
 class Computed_Distances:
     """Computes and caches mahalanobis distance on-demand.
 
@@ -37,11 +35,19 @@ class Computed_Distances:
         self.shape = self.data.shape
 
     def __getitem__(self, slice_):
+        # print(f"Triggered __getitem__ with slice: {slice_}")
         if np.isnan(self.data[slice_]).any():
             ranges = [
                 np.squeeze(np.arange(len(self.data))[slice_[i]])
                 for i in range(len(slice_))
             ]
+            # ranges = []
+            # for i in range(len(slice_)):
+            #     s = slice_[i]
+            #     if isinstance(s, int):
+            #         ranges.append(np.array([s]))
+            #     else:
+            #         ranges.append(np.arange(len(self.data))[s])
             # find the nan entries in the distance matrix
             entry_nan_index = ([], [])
             for entry in ranges[0]:
@@ -77,7 +83,8 @@ def compute_OT(
     precomputed_distances=None,
     ground_metric=None,
     w=None,
-    numThreads=32,
+    cluster_centers=None,
+    n_threads=32,
 ):
     """Compute the Optimal Transport between distributions using precomputed distances, the mahalanobis
     distance or a different ground metric.
@@ -90,11 +97,13 @@ def compute_OT(
     :type ground_metric: "euclidean", "cosine", "cityblock", optional
     :param w: weight matrix for the mahalanobis distance, defaults to None
     :type w: array-like, optional
-    :param numThreads: number of threads to use for the computation of the OT, defaults to 32
-    :type numThreads: int, optional
+    :param n_threads: number of threads to use for the computation of the OT, defaults to 32
+    :type n_threads: int, optional
     :return: OT matrix
     :rtype: numpy.ndarray
     """
+    if cluster_centers is None:
+        cluster_centers = []
     # initialize matrix that stores the OT distance for each distribution pair
     D = np.zeros((len(distributions), len(distributions)))
     for i, distribution_i in enumerate(distributions):
@@ -114,14 +123,20 @@ def compute_OT(
                     ]
                 # if w is given, compute the mahalanobis distance
                 elif w is not None:
-                    M = pairwise_mahalanobis_distance_npy(
-                        distribution_i, distribution_j, w
-                    )
+                    if len(cluster_centers) == 0:
+                        M = pairwise_mahalanobis_distance_npy(
+                            distribution_i, distribution_j, w
+                        )
+                    else:
+                        M = pairwise_mahalanobis_distance_npy(
+                            cluster_centers, cluster_centers, w
+                        )
                 # if a ground metric is given, compute the distance using that metric
                 elif ground_metric == "euclidean":
                     M = sp.distance.cdist(
                         distribution_i, distribution_j, metric="euclidean"
                     )
+                    print("finished computing")
                 elif ground_metric == "cosine":
                     M = sp.distance.cdist(
                         distribution_i, distribution_j, metric="cosine"
@@ -132,7 +147,12 @@ def compute_OT(
                         distribution_i, distribution_j, metric="cityblock"
                     )
                 # compute the Earth Mover's Distance (OT)
-                D[i, j] = ot.emd2([], [], M, numThreads=numThreads)
+                if len(cluster_centers) == 0:
+                    D[i, j] = ot.emd2([], [], M, numThreads=n_threads)
+                else:
+                    D[i, j] = ot.emd2(
+                        distribution_i, distribution_j, M, numThreads=n_threads
+                    )
             else:
                 D[i, j] = D[j, i]
 
@@ -142,9 +162,9 @@ def compute_OT(
 def pairwise_mahalanobis_distance(X_i, X_j, w):
     """Compute the Mahalanobis distance between two distributions using w (with torch).
 
-    :param X_i: distriubtion of shape (num_points n, num_features)
+    :param X_i: distribution of shape (num_points n, num_features)
     :type X_i: torch.Tensor
-    :param X_j: distriubtion of shape (num_points m, num_features)
+    :param X_j: distribution of shape (num_points m, num_features)
     :type X_j: torch.Tensor
     :param w: weight tensor defining the mahalanobis distance of shape (rank k, num_features)
     :type w: torch.Tensor
@@ -168,18 +188,16 @@ def pairwise_mahalanobis_distance(X_i, X_j, w):
 
 
 def pairwise_mahalanobis_distance_npy(X_i, X_j=None, w=None, numThreads=32):
-    """Compute the Mahalanobis distance between two distributions using w which can be a weight tensor
+    """Compute the Mahalanobis distance between two distributions X_i and X_j using w which can be a weight tensor
     or a ground metric. If only X_i is given, the distance is computed between all pairs of X_i.
 
-    :param X_i: distriubtion of shape (num_points n, num_features)
+    :param X_i: distribution of shape (num_points n, num_features)
     :type X_i: array-like
-    :param X_j: distriubtion of shape (num_points m, num_features), defaults to None
+    :param X_j: distribution of shape (num_points m, num_features), defaults to None
     :type X_j: array-like, optional
-    :param w: weight tensor defining the mahalanobis distance of shape (rank k, num_features)
-    or a string defining the metric to use, defaults to None
+    :param w: weight tensor defining the mahalanobis distance of shape (rank k, num_features) or a string defining the metric to use, defaults to None
     :type w: array-like or str, optional
-    :return: Mahalanobis distance (or distance of given metric) between X_i and X_j or
-    all pairs of X_i of shape (num_points n, num_points m)
+    :return: Mahalanobis distance (or distance of given metric) between X_i and X_j or all pairs of X_i of shape (num_points n, num_points m)
     :rtype: array-like
     """
     # if X_j is not provided, compute the distance between all pairs of X_i

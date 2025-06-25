@@ -17,17 +17,54 @@ from PIL import Image
 import scipy.spatial as sp
 import scipy.cluster.hierarchy as hc
 import warnings
+from ggml_ot.distances import compute_OT
+
+
+def plot_distribution_adata(
+    adata, n_cells=1000, projection=lambda x: x, title="Distributions", legend=True
+):
+    """Visualizes high-dimensional distributions extracted from an Anndata object as an input in
+    2D using optional PCS projection. The distributions are plotted as a scatter plot where the
+    classes are distinguishable by color and the distributions by shape.
+
+    :param adata: Anndata object or path to the object containing the data from which to extract and visualize
+    the distributions
+    :type adata: Anndata
+    :param n_cells: number of cells to subsample per patient, set to 0 to keep all cells, defaults to 1000
+    :type n_cells: int, optional
+    :param projection: transformation to apply to distributions before plotting, defaults to lambdax:x
+    :type projection: callable, optional
+    :param title: title of the plot, defaults to "Distributions"
+    :type title: str, optional
+    :param legend: whether to show legend, defaults to True
+    :type legend: bool, optional
+    """
+    from ggml_ot.data import scRNA_Dataset
+
+    training_data = scRNA_Dataset(adata, n_cells=n_cells, filter_genes=False)
+    a = training_data.distributions
+    b = training_data.distributions_labels
+
+    plot_distribution(
+        distributions=a, labels=b, projection=projection, title=title, legend=legend
+    )
 
 
 def plot_distribution(
-    distributions, labels, projection=lambda x: x, title="Distributions", legend=True
+    distributions,
+    labels,
+    projection=lambda x: x,
+    title="Distributions",
+    legend=True,
+    dim_red="umap",
 ):
+    # TODO this plotting function is still a mess
     """Visualizes high-dimensional distributions in 2D using optional PCS projection.
     The distributions are plotted as a scatter plot where the classes are distinguishable by color
     and the distributions by shape.
 
-    :param dists: distributions to plot of shape (num_distributions, num_points, num_features)
-    :type dists: array-like
+    :param distributions: distributions to plot of shape (num_distributions, num_points, num_features)
+    :type distributions: array-like
     :param labels: labels corresponding to distributions of shape (num_distributions)
     :type labels: array-like
     :param projection: transformation to apply to distributions before plotting, defaults to lambdax:x
@@ -41,33 +78,39 @@ def plot_distribution(
     # convert input distributions to numpy array
     if type(distributions) is not np.ndarray:
         distributions = np.array(distributions)
-    pca = None
 
-    offset = distributions.shape[0] / len(np.unique(labels))
+    offset = (
+        distributions.shape[0] / len(np.unique(labels))
+        if distributions.shape[0] > 5
+        else distributions.shape[0]
+    )
 
-    # apply PCA if distributions have more than 2 dimensions
+    reducer = None
     dim = distributions.shape[-1]
     if dim > 2:
-        print("PCA")
-        print(distributions.shape)
-        flat_dists = projection(distributions.reshape(-1, dim))
-        pca = PCA(n_components=2, svd_solver="full")
-        pca.fit_transform(flat_dists)
+        if dim_red == "umap":
+            flat_dists = projection(distributions.reshape(-1, dim))
+            reducer = umap.UMAP()  # ,n_neighbors=10
+            reducer.fit_transform(flat_dists)  # SJ
+        elif dim_red == "pca":
+            flat_dists = projection(distributions.reshape(-1, dim))
+            reducer = PCA(n_components=2, svd_solver="full")
+            reducer.fit_transform(flat_dists)
 
     # apply projection and PCA to projected distributions
     # create x,y coordinates and class labels for each data point
     i = 0
     dfList_projected = []
-    for dist, l in zip(distributions, labels):
+    for dist, label in zip(distributions, labels):
         stacked_projected = projection(dist)
-        if pca is not None:
-            stacked_projected = pca.transform(stacked_projected)
+        if reducer is not None:
+            stacked_projected = reducer.transform(stacked_projected)
         dfList_projected.append(
             pd.DataFrame(
                 {
                     "x": stacked_projected[:, 0],
                     "y": stacked_projected[:, 1],
-                    "class": str(l.item()),
+                    "class": str(label),  # l.item()
                     "dist": i % offset,
                 }
             )
@@ -85,6 +128,7 @@ def plot_distribution(
     else:
         ax.get_legend().remove()
     ax.set_title(title)
+    plt.show()
 
 
 def plot_ellipses(covariances, ax=None, title="Ellipses"):
@@ -154,7 +198,7 @@ def plot_heatmap(
     ax=None,
     title="Pairwise distances",
 ):
-    """Visualize a 2D matrix as a heatmap.
+    """Visualizes a 2D matrix as a heatmap.
     It represents the values of an input matrix by colors.
 
     :param results: data to be represented as a heatmap
@@ -190,6 +234,116 @@ def plot_transport_plan(plan):
     plt.show()
 
 
+def plot_emb_adata(
+    adata,
+    precomputed_distances=None,
+    ground_metric=None,
+    n_cells=1000,
+    method="umap",
+    precomputed_emb=None,
+    colors=None,
+    symbols=None,
+    ax=None,
+    cluster_ID=None,
+    title="Embedding",
+    cmap="tab20",
+    save_path=None,
+    verbose=True,
+    legend="Top",
+    s=15,
+    hue_order=None,
+    annotation=None,
+    linewidth=0.02,
+    annotation_image_path=None,
+):
+    """Visualize the embedding of a distance matrix extracted from an Anndata object as an input
+    using various reduction methods in form of a scatter plot.
+
+    :param adata: Anndata object or path to the object containing the data from which to extract and visualize the distributions
+    :type adata: Anndata
+    :param precomputed_distances: precomputed distances to use as ground metric, defaults to None
+    :type precomputed_distances: array-like, optional
+    :param ground_metric: ground metric to use, defaults to None
+    :type ground_metric: "euclidean", "cosine", "cityblock", optional
+    :param n_cells: number of cells to subsample per patient, set to 0 to keep all cells, defaults to 1000
+    :type n_cells: int, optional
+    :param method: dimensionality reduction method, defaults to 'umap'
+    :type method: "umap", "tsne", "diffusion", "fast_diffusion", "mds", "phate", optional
+    :param precomputed_emb: precomputed embeddings to plot of shape (n_samples, 2), defaults to None
+    :type precomputed_emb: array-like, optional
+    :param colors: list of class labels to use for coloring the points, defaults to None
+    :type colors: array-like, optional
+    :param symbols: list of labels to use for marker styles, defaults to None
+    :type symbols: array-like, optional
+    :param ax: axes on which to draw the embedding, defaults to None
+    :type ax: matplotlib.axes.Axes, optional
+    :param cluster_ID: boolean array indicating whether a point is a centroid/ medoid/ representative point of a cluster or not, defaults to None
+    :type cluster_ID: array-like of bool, optional
+    :param title: title of the plot, defaults to None
+    :type title: str, optional
+    :param cmap: colormap used for coloring the points, defaults to "tab20"
+    :type cmap: str, array-like, dict or matplotlib.colors.Colormap, optional
+    :param save_path: file path to save generated plot (not saved if None), defaults to None
+    :type save_path: str, optional
+    :param verbose: display title if True, defaults to True
+    :type verbose: bool, optional
+    :param legend: defines where to place the legend, defaults to 'Top'
+    :type legend: "Top", "Side", optional
+    :param s: marker size used in the plot, defaults to 15
+    :type s: int, optional
+    :param hue_order: order in which class labels are presented in legend, defaults to None
+    :type hue_order: array-like of str, optional
+    :param annotation: text to display on each point, defaults to None
+    :type annotation: array-like of str, optional
+    :param linewidth: linewidth of marker edges, defaults to 0.02
+    :type linewidth: float, optional
+    :param annotation_image_path: list of image paths to overlay on plot, defaults to None
+    :type annotation_image_path: array-like of str, optional
+    :return: 2D embedding for plotting
+    :rtype: numpy.ndarray
+    """
+    from ggml_ot.data import scRNA_Dataset
+
+    training_data = scRNA_Dataset(adata, n_cells=n_cells, filter_genes=False)
+    symbols = [i % 10 for i in range(len(training_data.distributions))]
+    colors = training_data.disease_labels
+
+    if precomputed_distances is None and ground_metric is None:
+        w = adata.uns["W_ggml"]
+    else:
+        w = None
+
+    if precomputed_emb is None:
+        dists = compute_OT(
+            training_data.distributions,
+            precomputed_distances=precomputed_distances,
+            ground_metric=ground_metric,
+            w=w,
+        )
+    else:
+        dists = None
+
+    plot_emb(
+        dists=dists,
+        method=method,
+        precomputed_emb=precomputed_emb,
+        colors=colors,
+        symbols=symbols,
+        ax=ax,
+        cluster_ID=cluster_ID,
+        title=title,
+        cmap=cmap,
+        save_path=save_path,
+        verbose=verbose,
+        legend=legend,
+        s=s,
+        hue_order=hue_order,
+        annotation=annotation,
+        linewidth=linewidth,
+        annotation_image_path=annotation_image_path,
+    )
+
+
 def plot_emb(
     dists,
     method="umap",
@@ -209,7 +363,7 @@ def plot_emb(
     linewidth=0.02,
     annotation_image_path=None,
 ):
-    """Visualize the embedding of a distance matrix using various reduction methods in form of a scatter plot.
+    """Visualizes the embedding of a distance matrix using various reduction methods in form of a scatter plot.
 
     :param dists: distance matrix to plot the embeddings from of shape (n_samples, n_samples)
     :type dists: array-like
@@ -437,6 +591,68 @@ def plot_emb(
     return emb
 
 
+def plot_clustermap_adata(
+    adata,
+    n_cells=1000,
+    hier_clustering=True,
+    method="average",
+    title=None,
+    dist_name="",
+    log=False,
+    save_path=None,
+    cmap="tab20",
+    hue_order=None,
+    annotation=False,
+):
+    """Visualize a given distance matrix as a hierarchically-clustered heatmap (clustermap) extracted from an
+    Anndata object as an input.
+
+    :param adata: Anndata object or path to the object containing the data from which to extract and visualize the distributions
+    :type adata: Anndata
+    :param n_cells: number of cells to subsample per patient, set to 0 to keep all cells, defaults to 1000
+    :type n_cells: int, optional
+    :param hier_clustering: whether to perform hierarchical clustering or not, defaults to True
+    :type hier_clustering: bool, optional
+    :param method: linkage method to use for hierarchical clustering, defaults to "average"
+    :type method: str, optional
+    :param title: title of the plot, defaults to None
+    :type title: str, optional
+    :param dist_name: name of the distance measure for the title of the colorbar, defaults to ""
+    :type dist_name: str, optional
+    :param log: whether to apply a logarithmic scaling to the distance matrix, defaults to False
+    :type log: bool, optional
+    :param save_path: file path to save generated plot (not saved if None), defaults to None
+    :type save_path: str, optional
+    :param cmap: color palette for clustermap, defaults to "tab20"
+    :type cmap: str, optional
+    :param hue_order: custom ordering of class labels for color mapping, defaults to None
+    :type hue_order: array-like, optional
+    :param annotation: whether to display sample labels on x-axis, defaults to False
+    :type annotation: bool, optional
+    :return: linkage matrix from hierarchical or None if clustering = True
+    :rtype: numpy.ndarray or None
+    """
+    from ggml_ot.data import scRNA_Dataset
+
+    training_data = scRNA_Dataset(adata, n_cells=n_cells, filter_genes=False)
+    w = adata.uns["w_theta"]
+    dists = compute_OT(training_data.distributions, w=w)
+
+    plot_clustermap(
+        dists=dists,
+        labels=training_data.distributions_labels,
+        hier_clustering=hier_clustering,
+        method=method,
+        title=title,
+        dist_name=dist_name,
+        log=log,
+        save_path=save_path,
+        cmap=cmap,
+        hue_order=hue_order,
+        annotation=annotation,
+    )
+
+
 def plot_clustermap(
     dists,
     labels,
@@ -488,9 +704,9 @@ def plot_clustermap(
     # define color palette
     if isinstance(cmap, str):
         cmap = sns.color_palette(palette=cmap, n_colors=len(unique_labels))
-        colors = [cmap[unique_labels.index(l)] for l in labels]
+        colors = [cmap[unique_labels.index(label)] for label in labels]
     else:
-        colors = [cmap[l] for l in labels]
+        colors = [cmap[label] for label in labels]
 
     dist = np.copy(dists)
 

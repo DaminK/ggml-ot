@@ -22,14 +22,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install poetry
-          pip install ruff pytest pytest-cov
-          poetry install
+          poetry install --with test
       - name: Lint with ruff
         run: |
-          ruff check --config pyproject.toml
+          poetry run ruff check --config pyproject.toml
       - name: run tests
         run: |
-          pytest --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
+          poetry run python -W "ignore::DeprecationWarning:ot.*" -m pytest --junitxml=junit/test-results-${{ matrix.python-version }}.xml
       - name: upload test results
         uses: actions/upload-artifact@v4
         with:

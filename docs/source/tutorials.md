@@ -1,12 +1,13 @@
 # Tutorials
 
-For an easy start with GGML-OT, check out the following tutotials:
+For an easy start with ggml-ot, check out the following tutotials:
 
 ```{toctree}
 ---
-maxdepth: 2
+maxdepth: 3
 caption: Tutorials
 ---
-synth
-scRNA
-visualization
+tutorials/ggml_toydata_tutorial.ipynb
+tutorials/ggml_scRNA_tutorial.ipynb
+tutorials/ggml_scRNA_fast.ipynb
+tutorials/ggml_tuning.ipynb

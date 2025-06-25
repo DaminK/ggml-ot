@@ -4,29 +4,31 @@ authors = [{ name = "Damin Kuehn", email = "kuehn@cs.rwth-aachen.de" }]
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
-  "Programming Language :: Python :: 3",
-  "Development Status :: 5 - Production/Stable",
-  "Framework :: Sphinx",
-  "Intended Audience :: Science/Research",
-  "Intended Audience :: Healthcare Industry",
-  "Topic :: Scientific/Engineering :: Bio-Informatics",
-  "Topic :: Scientific/Engineering :: Information Analysis",
-  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Programming Language :: Python :: 3",
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: Sphinx",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
-  "tqdm (>=4.67.1,<5.0.0)",
-  "scipy (>=1.15.2,<2.0.0)",
-  "matplotlib (>=3.10.1,<4.0.0)",
-  "seaborn (>=0.13.2,<0.14.0)",
-  "umap-learn (>=0.5.7,<0.6.0)",
-  "numpy (>=2.2.4,<3.0.0)",
-  "pandas (>=2.2.3,<3.0.0)",
-  "pot (>=0.9.5,<0.10.0)",
-  "pydiffmap (>=0.2.0.1,<0.3.0.0)",
-  "anndata (>=0.11.4,<0.12.0)",
-  "torch (>=2.6.0,<3.0.0)",
-  "scanpy (>=1.11.1,<2.0.0)",
-  "scikit-learn (>=1.1,<1.6)",
+    "tqdm (>=4.67.1,<5.0.0)",
+    "scipy (>=1.15.2,<2.0.0)",
+    "matplotlib (>=3.10.1,<4.0.0)",
+    "seaborn (>=0.13.2,<0.14.0)",
+    "umap-learn (>=0.5.7,<0.6.0)",
+    "numpy (>=2.2.4,<3.0.0)",
+    "pandas (>=2.2.3,<3.0.0)",
+    "pot (>=0.9.5,<0.10.0)",
+    "pydiffmap (>=0.2.0.1,<0.3.0.0)",
+    "anndata (>=0.11.4,<0.12.0)",
+    "torch (>=2.6.0,<3.0.0)",
+    "scanpy (>=1.11.1,<2.0.0)",
+    "scikit-learn (>=1.1,<1.6)",
+    "requests (>=2.32.4,<3.0.0)",
+    "ipython (>=9.3.0,<10.0.0)",
 ]
 [project.urls]
 Homepage = "https://github.com/DaminK/ggml-ot"
@@ -49,24 +51,26 @@ ipykernel = "^6.29.5"
 optional = true
 
 [tool.poetry.group.docs.dependencies]
-sphinx = "^8.2.3"
+sphinx = "^8.1"
 sphinx-autorun = "^2.0.0"
 sphinx-rtd-theme = "^3.0.2"
 myst-parser = "^4.0.1"
+nbsphinx = "^0.9.7"
 
 [tool.poetry.group.test]
 optional = true
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.5"
-pytest-cov = "^6.1.1"
 ruff = "^0.11.6"
 
 [tool.ruff]
-select = ["E4", "E7", "E9", "F"]
-task-tags = ["TODO", "FIXME"]
 output-format = "github"
 respect-gitignore = true
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+task-tags = ["TODO", "FIXME"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -75,4 +79,3 @@ docstring-code-format = true
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-

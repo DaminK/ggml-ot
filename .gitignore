@@ -13,9 +13,12 @@
 .vscode/*
 
 /docs/site/*
+/docs/build/*
+/docs/source/generated/*
 .mypy_cache
 
 .venv/*
+venv
 poetry.toml
 poetry.lock
 *.h5ad

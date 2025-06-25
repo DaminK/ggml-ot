@@ -17,4 +17,5 @@ extensions = [
     "sphinx_autorun",
     "myst_parser",
     "sphinx.ext.intersphinx",
+    "nbsphinx",
 ]
