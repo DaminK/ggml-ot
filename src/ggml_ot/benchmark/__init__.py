@@ -7,7 +7,7 @@ from .knn import (
     plot_table,
     VI,
     VI_np,
-    evaluate_generalizability,
+    evaluate,
 )
 from .pivoted_chol import pivoted_chol
 
@@ -21,6 +21,6 @@ __all__ = [
     "plot_table",
     "VI",
     "VI_np",
-    "evaluate_generalizability",
     "pivoted_chol",
+    "evaluate",
 ]

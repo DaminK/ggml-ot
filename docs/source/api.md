@@ -11,10 +11,13 @@
 .. autosummary::
    :toctree: generated/
 
-   ggml
-   scRNA_Dataset
    synthetic_Dataset
-   evaluate_generalizability
+   scRNA_Dataset
+   ggml
+   download_cellxgene
+   sample_backed_mode
+   importance
+   enrichment
    plot_heatmap
    plot_emb
    plot_emb_adata

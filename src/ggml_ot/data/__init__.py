@@ -5,6 +5,7 @@ from .util import (
     create_triplets,
     download_cellxgene,
     sample_backed_mode,
+    create_split,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "create_triplets",
     "download_cellxgene",
     "sample_backed_mode",
+    "create_split",
 ]

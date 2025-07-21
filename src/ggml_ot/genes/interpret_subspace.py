@@ -13,6 +13,23 @@ def importance(
     plot=True,
     save_path=None,
 ):
+    """Identifes and visualizes the most important genes contributing to each component of a learned low-dimensional gene embedding from an Anndata object.
+
+    :param adata: Anndata object containing the single-cell RNA data
+    :type adata: Anndata
+    :param n_top_genes: number of top-ranking genes to extract per component, defaults to 10
+    :type n_top_genes: int, optional
+    :param reconstruct_covariances: whether to reconstruct the full covariance matrices from the embedding components, defaults to False
+    :type reconstruct_covariances: bool, optional
+    :param only_diagonal: consider only the diagonal of the reconstructed covariance matrix if set to True, defaults to False
+    :type only_diagonal: bool, optional
+    :param plot: whether to display the gene importance, defaults to True
+    :type plot: bool, optional
+    :param save_path: path to save the generated plots as PDF, defaults to None
+    :type save_path: str, optional
+    :return: a list of lists containing the names of the most important genes for each component, sorted by relative importance
+    :rtype: array-like
+    """
     if "W_ggml" not in adata.uns.keys():
         raise Exception("GGML not trained on this Anndata object yet")
 
@@ -145,6 +162,19 @@ def enrichment(
     thresh=0.01,
     organism="hsapiens",
 ):
+    """Performs enrichment analysis on top-ranked genes and visualizes the enriched biological terms.
+
+    :param most_important_genes_list: a list of gene lists where each list contains the top genes for a given component
+    :type most_important_genes_list: array-like
+    :param ordered: whether the gene lists are ordered by importance, defaults to True
+    :type ordered: bool, optional
+    :param save_path: path to save plots, defaults to None
+    :type save_path: str, optional
+    :param thresh: threshold for significance in enrichment, defaults to 0.01
+    :type thresh: float, optional
+    :param organism: organism ID for g:Profiler, defaults to "hsapiens"
+    :type organism: str, optional
+    """
     for i, most_important_genes in enumerate(most_important_genes_list):
         gp = gprofiler.GProfiler(return_dataframe=True)
         enrich = gp.profile(

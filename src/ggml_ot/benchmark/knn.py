@@ -17,7 +17,9 @@ import matplotlib.pyplot as plt
 from IPython.display import display
 import warnings
 
+from ggml_ot.data import create_split
 from ggml_ot.distances import Computed_Distances, compute_OT
+import copy
 
 
 def ShuffleSplit(
@@ -350,40 +352,29 @@ def VI_np(labels1, labels2, return_split_merge=False):
     return vi, vi_split, vi_merge, splitters, mergers
 
 
-def evaluate_generalizability(
-    dataset, w_theta, print_latex=False, method="", verbose=True
-):
-    """
-    Evaluates how well a learned weight matrix w_theta generalizes to unseen data. It uses k-NN classification
-    and Agglometarive Clustering for evaluation. The function returns the accuracy score of the classification results,
-    the Mutual Information score (measures mutual dependence between predicted clusters and true labels), the Adjusted
-    Rand score (quantifies similarity between predicted clusters and true labels based on pairwise decisions) and the
-    Variation of Information (measures the difference between clusterings using entropy). It scales the scores such that they are between
-    0 and 1 (1 is the best, 0 the worst).
-
-    :param dataset: input dataset that holds the train and test datasets
-    :type dataset: Dataset
-    :param w_theta: trained weight matrix to check
-    :type w_theta: array-like
-    :param print_latex: whether to print the outcome table in latex format, defaults to False
-    :type print_latex: bool, optional
-    :param method: what was used to train w_theta, defaults to ""
-    :type method: str, optional
-    :return: the accuracy score of the knn classification, the NMI score, the ARI score and the VI score
-    :rtype: tuple of floats
-    """
-
+def evaluate(dataset, split, w_theta, print_latex=False, method="", verbose=True):
     # if anndata object is given instead of only w_theta, extract the matrix
     if not isinstance(w_theta, np.ndarray):
         w_theta = w_theta.uns["W_ggml"]
-
+    train_set = copy.deepcopy(dataset)
+    train_set.distributions, train_set.distributions_labels, train_set.triplets = (
+        create_split(dataset, split[0])
+    )
+    test_set = copy.deepcopy(dataset)
+    test_set.distributions, test_set.distributions_labels, test_set.triplets = (
+        create_split(dataset, split[1])
+    )
     # extract and concatenate the train and test data
-    all_datapoints = np.concatenate((dataset.datapoints, dataset.test_datapoints))
+
+    train_points = np.concatenate(train_set.distributions)
+    test_points = np.concatenate(test_set.distributions)
+    all_datapoints = np.concatenate([train_points, test_points])
+
     all_distributions_labels = np.concatenate(
-        (dataset.distributions_labels, dataset.test_distributions_labels)
+        (train_set.distributions_labels, test_set.distributions_labels)
     )
     all_distributions = np.concatenate(
-        (dataset.distributions, dataset.test_distributions)
+        (train_set.distributions, test_set.distributions)
     )
     # compute mahalanobis and wasserstein distances on whole dataset
     distances = Computed_Distances(np.asarray(all_datapoints, dtype="f"), theta=w_theta)
@@ -396,7 +387,7 @@ def evaluate_generalizability(
 
     # define train and test indices and matrices with distances between the train data and
     # distances between test and train data
-    n_train = len(dataset.distributions)
+    n_train = len(train_set.distributions)
     train_idx = np.arange(n_train)
     test_idx = np.arange(n_train, len(all_distributions))
 
@@ -408,11 +399,11 @@ def evaluate_generalizability(
     knn_clf = KNeighborsClassifier(
         n_neighbors=5, metric="precomputed", weights="uniform"
     )
-    knn_clf.fit(D_train_train, dataset.distributions_labels)
+    knn_clf.fit(D_train_train, train_set.distributions_labels)
     y_pred = knn_clf.predict(D_test_train)
 
     # compute the classification accuracy
-    knn_acc = accuracy_score(dataset.test_distributions_labels, y_pred)
+    knn_acc = accuracy_score(test_set.distributions_labels, y_pred)
 
     # use the concatenation of all datapoints for the clustering
     clustering = AgglomerativeClustering(

@@ -15,9 +15,9 @@ from .plot import (
     plot_clustermap_adata,
 )
 
-from .benchmark import evaluate_generalizability
-
 from .ggml import ggml, anndata_preprocess
+
+from .genes import enrichment, importance
 
 __all__ = [
     "scRNA_Dataset",
@@ -34,5 +34,6 @@ __all__ = [
     "plot_distribution_adata",
     "download_cellxgene",
     "sample_backed_mode",
-    "evaluate_generalizability",
+    "enrichment",
+    "importance",
 ]

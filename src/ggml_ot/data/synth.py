@@ -8,6 +8,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from ggml_ot.plot import plot_emb, plot_clustermap
+from sklearn.model_selection import StratifiedKFold
 
 
 class synthetic_Dataset(Dataset):
@@ -94,6 +95,24 @@ class synthetic_Dataset(Dataset):
 
         # Triplets
         self.triplets = create_t_triplets(distributions, distributions_labels, **kwargs)
+
+    def split(self, n_splits):
+        """Splits the given dataset into a train and test set and returns their indices.
+
+        :param n_splits: how many splits to return - also defines the train and test size (test size is 1/n_splits)
+        :type n_splits: int
+        :return: list of a list of train indices and a list of test indices
+        :rtype: array-like
+        """
+        labels = self.distributions_labels
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True)
+        indices = np.arange(len(labels))
+        split_indices = []
+
+        for train_idx, test_idx in skf.split(indices, labels):
+            split_indices.append((train_idx.tolist(), test_idx.tolist()))
+
+        return split_indices
 
     def get_pointcloud(
         self,
@@ -261,16 +280,20 @@ class synthetic_Dataset(Dataset):
         """
         # Returns elements and labels of triplet at idx
         i, j, k = self.triplets[idx]
-        return np.stack(
-            (self.distributions[i], self.distributions[j], self.distributions[k]),
-            dtype="f",
-        ), [], np.stack(
-            (
-                self.distributions_labels[i],
-                self.distributions_labels[j],
-                self.distributions_labels[k],
+        return (
+            np.stack(
+                (self.distributions[i], self.distributions[j], self.distributions[k]),
+                dtype="f",
             ),
-            dtype="f",
+            [],
+            np.stack(
+                (
+                    self.distributions_labels[i],
+                    self.distributions_labels[j],
+                    self.distributions_labels[k],
+                ),
+                dtype="f",
+            ),
         )
 
     def get_raw_distributions(self):

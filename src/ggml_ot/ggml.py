@@ -7,8 +7,10 @@ import os
 from .data import scRNA_Dataset
 import scanpy as sc
 from anndata import AnnData
-from ggml_ot.benchmark import evaluate_generalizability, plot_table
+from ggml_ot.benchmark import evaluate, plot_table
+from ggml_ot.data import create_split
 import pandas as pd
+import copy
 
 
 def anndata_preprocess(
@@ -71,25 +73,25 @@ def ggml(
     dataset: torch.utils.data.Dataset | None = None,
     adata: AnnData | None = None,
     n_threads: str | int = 1,  # "max" or num of threads
-    train_size: float = 0.75,
+    n_splits: int | None = None,
     **kwargs,
 ):
     """
     A method to train Global Metrics as the Ground Metric of an Optimal Transport distance from class labels of distributions. It provides interfaces to Anndata (scRNA-seq data) and Pytorch Dataset/Dataloader.
 
-    :param data: Input Data
+    :param data: input Data
     :type data: Anndata | path to Anndata | torch.utils.data.DataLoader | torch.utils.data.Dataset
-    :param alpha: Required distance margin between learned cluster, if alpha is a list of values, hyperparameter tuning is used to find the most suitable alpha and if an empty list is given, hyperparameter tuning is done with default values
+    :param alpha: required distance margin between learned cluster, if alpha is a list of values, hyperparameter tuning is used to find the most suitable alpha and if an empty list is given, hyperparameter tuning is done with default values
     :type alpha: float, array-like or empty list
-    :param reg: Regularization parameter, if reg is a list of values, hyperparameter tuning is used to find the most suitable reg and if an empty list is given, hyperparameter tuning is done with default values
+    :param reg: regularization parameter, if reg is a list of values, hyperparameter tuning is used to find the most suitable reg and if an empty list is given, hyperparameter tuning is done with default values
     :type reg: float, array-like or empty list
-    :param rank_k: Rank of the subspace projection, if rank_k is a list of values, hyperparameter tuning is used to find the most suitable rank_k and if an empty list is given, hyperparameter tuning is done with default values
+    :param rank_k: rank of the subspace projection, if rank_k is a list of values, hyperparameter tuning is used to find the most suitable rank_k and if an empty list is given, hyperparameter tuning is done with default values
     :type rank_k: int, array-like or empty list
-    :param lr: Learning rate
+    :param lr: learning rate
     :type lr: float
-    :param norm: Norm used for loss calculation during learning
+    :param norm: norm used for loss calculation during learning
     :type norm: str
-    :param max_iterations: Amount of learning iterations to perform
+    :param max_iterations: amount of learning iterations to perform
     :type max_iterations: int
     :param diagonal: True => initialize the to be learned weights with a diagonal matrix, False => initialize with a full matrix
     :type diagonal: bool
@@ -103,17 +105,17 @@ def ggml(
     :type save_i_iterations: int
     :param plot_i_iterations: plots every ith iteration of the learned weights
     :type plot_i_terations: int
-    :param dataset: Only applies when using a DataLoader as input and when plotting during learning is used - contains data to compute the OT distances on
+    :param dataset: only applies when using a DataLoader as input and when plotting during learning is used - contains data to compute the OT distances on
     :type dataset: Dataset
-    :param adata: When a Dataset or DataLoader is passed for training, but results should be returned as part of the Anndata object,
+    :param adata: when a Dataset or DataLoader is passed for training, but results should be returned as part of the Anndata object,
     :type adata: Anndata
     :param n_threads: either "max" to use all available threads during calculation or the specifc number of threads, defaults to 1
     :type n_threads: string, int
-    :param train_size: train_size for hyperparameter tuning, defaults to 0.75
-    :type train_size: float
-    :param kwargs: Other keyword arguments are passed through to scRNA_Dataset which provides an Pytorch DataLoader for Anndata objects (see docs of scRNA_Dataset for details)
+    :param n_splits: how many splits to do when doing hyperparameter optimization and generalizability evaluation. If set as an int and alpha, reg and rank_k are single values, generalizability evaluation is done for n_splits. Also implies the train and test size: test_size = 1/n_splits, defaults to None
+    :type n_splits: int or None, optional
+    :param kwargs: other keyword arguments are passed through to scRNA_Dataset which provides an Pytorch DataLoader for Anndata objects (see docs of scRNA_Dataset for details)
     :type kwargs: key, value pairings
-    :return: if train_size not None, returns the trained w_theta and the hyperparamaters it was trained with, otherwise only returns w_theta
+    :return: if for alpha, reg or rank_k a list is given, returns the trained w_theta and the hyperparamaters it was trained with, otherwise only returns w_theta
     :rtype: array-like or array-like, dict
     """
 
@@ -137,6 +139,7 @@ def ggml(
         raise Exception(f"Input datatype {type(data)} is not supported yet")
 
     tune = False
+    generalize = False
     if isinstance(alpha, list) and len(alpha) == 0:
         alpha = [0.1, 1, 10]
         tune = True
@@ -147,27 +150,35 @@ def ggml(
         rank_k = [3, 5]
         tune = True
 
-    n_splits = 1
     best_W = None
     best = {"score": -np.inf, "knn_acc": None, "alpha": None, "reg": None, "k": None}
     if not isinstance(alpha, list) and not isinstance(alpha, np.ndarray):
         alpha = [alpha]
     else:
         tune = True
-        n_splits = 5
     if not isinstance(reg, list) and not isinstance(reg, np.ndarray):
         reg = [reg]
     else:
         tune = True
-        n_splits = 5
     if not isinstance(rank_k, list) and not isinstance(rank_k, np.ndarray):
         rank_k = [rank_k]
     else:
         tune = True
-        n_splits = 5
 
     if tune:
         print("Starting the hyperparameter tuning")
+        if isinstance(dataloader, torch.utils.data.DataLoader) and not isinstance(
+            dataset, torch.utils.data.Dataset
+        ):
+            data = dataloader.dataset
+        train_dataset = copy.deepcopy(data)
+    else:
+        if isinstance(n_splits, int):
+            print("Starting the generalizability evaluation")
+            generalize = True
+            train_dataset = copy.deepcopy(data)
+        else:
+            n_splits = 1
 
     for a_ in alpha:
         for reg_ in reg:
@@ -177,13 +188,17 @@ def ggml(
                 mi = np.zeros(n_splits)
                 ari = np.zeros(n_splits)
                 vi = np.zeros(n_splits)
+                if tune or generalize:
+                    split_indices = data.split(n_splits)
                 for i in range(n_splits):
-                    if tune:
-                        data = scRNA_Dataset(
-                            adata, train_size=train_size, filter_genes=False, **kwargs
-                        )
+                    if tune or generalize:
+                        (
+                            train_dataset.distributions,
+                            train_dataset.distributions_labels,
+                            train_dataset.triplets,
+                        ) = create_split(data, split_indices[i][0])
                         dataloader = torch.utils.data.DataLoader(
-                            data, batch_size=128, shuffle=True
+                            train_dataset, batch_size=128, shuffle=True
                         )
                     # perform ggml on dataloader
                     w_theta = _ggml(
@@ -203,10 +218,11 @@ def ggml(
                         n_threads=n_threads,
                         dataset=data,
                     )
-                    if tune:
+                    if tune or generalize:
                         try:
-                            knn_, mi_, ari_, vi_ = evaluate_generalizability(
+                            knn_, mi_, ari_, vi_ = evaluate(
                                 dataset=data,
+                                split=split_indices[i],
                                 w_theta=w_theta,
                                 method=method,
                                 verbose=verbose,
@@ -220,7 +236,7 @@ def ggml(
                                 f"Skipping split {i + 1} with config a={a_}, reg={reg_}, rank_k={rank_k_}: {e}"
                             )
                             continue
-                if tune:
+                if tune or generalize:
                     score = (
                         np.mean(knn) / 2
                         + (np.mean(mi) / 3 + np.mean(ari) / 3 + np.mean(vi) / 3) / 2

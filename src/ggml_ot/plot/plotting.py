@@ -27,8 +27,7 @@ def plot_distribution_adata(
     2D using optional PCS projection. The distributions are plotted as a scatter plot where the
     classes are distinguishable by color and the distributions by shape.
 
-    :param adata: Anndata object or path to the object containing the data from which to extract and visualize
-    the distributions
+    :param adata: Anndata object or path to the object containing the data from which to extract and visualize the distributions
     :type adata: Anndata
     :param n_cells: number of cells to subsample per patient, set to 0 to keep all cells, defaults to 1000
     :type n_cells: int, optional

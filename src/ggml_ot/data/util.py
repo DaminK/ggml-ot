@@ -136,3 +136,11 @@ def create_t_triplets(distributions, labels, t=5, **kwargs):
                     for k in get_neighbors(c_k):
                         triplets.append((i, j, k))
     return triplets
+
+
+def create_split(dataset, split_indices):
+    distributions = [dataset.distributions[i] for i in split_indices]
+    labels = [dataset.distributions_labels[i] for i in split_indices]
+    triplets = create_triplets(distributions, labels)
+
+    return distributions, labels, triplets

@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, "..")
 
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import scanpy as sc
 from anndata import AnnData
@@ -39,8 +39,6 @@ class scRNA_Dataset(Dataset):
     :type n_cells: int, optional
     :param filter_genes: whether to filter out genes with low variance (if True), defaults to True
     :type filter_genes: bool, optional
-    :param train_size: fraction of train split. If None, no splitting is done, defaults to None
-    :type train_size: float, optional
     :return: generated data (distributions and their labels, points and their labels, disease labels, celltype labels, patient labels)
     :rtype: tuple
 
@@ -62,13 +60,6 @@ class scRNA_Dataset(Dataset):
     :vartype celltype_node_labels: array-like
     :ivar triplets: list of triplet indices of shape (n_cells * n_patients, 3) used for training
     :vartype triplets: array-like of tuples
-
-    :ivar test_distributions: a 2D array representing cells and their gene expressions of shape (n_cells, n_features) for each patient (n_patients); is only returned if train_size not None
-    :vartype test_distributions: list of numpy.ndarray
-    :ivar test_distributions_labels: integer-encoded class labels of shape (n_patients) for each distribution; is only returned if train_size not None
-    :vartype test_distributions_labels: array-like of int
-    :ivar test_datapoints: a concatenation of all distributions of shape (n_cells * n_patients, n_features)
-    :vartype test_datapoints: array-like
     """
 
     def __init__(
@@ -80,7 +71,6 @@ class scRNA_Dataset(Dataset):
         use_rep=None,
         subsample_patient_ratio=1,
         n_cells=1000,
-        train_size=None,
         filter_genes=True,
         **kwargs,
     ):
@@ -93,61 +83,21 @@ class scRNA_Dataset(Dataset):
             subsample_patient_ratio=subsample_patient_ratio,
             n_cells=n_cells,
             filter_genes=filter_genes,
-            train_size=train_size,
             **kwargs,
         )
 
-        if train_size is None:
-            (
-                distributions,
-                distributions_labels,
-                points,
-                point_labels,
-                disease_labels,
-                celltype_node_labels,
-                patient_labels,
-                cluster_centers,
-                adata_object,
-                point_patient_labels,
-            ) = result
-        else:
-            (
-                (
-                    distributions,
-                    distributions_labels,
-                    points,
-                    point_labels,
-                    disease_labels,
-                    celltype_node_labels,
-                    patient_labels,
-                    cluster_centers,
-                    adata_object,
-                    point_patient_labels,
-                ),
-                (
-                    test_distributions,
-                    test_distributions_labels,
-                    test_points,
-                    test_point_labels,
-                    test_disease_labels,
-                    test_celltype_node_labels,
-                    test_patient_labels,
-                    test_cluster_centers,
-                    test_adata_object,
-                    test_point_patient_labels,
-                ),
-            ) = result
-            self.test_distributions = test_distributions
-            self.test_distributions_labels = test_distributions_labels
-            self.test_datapoints = test_points
-            # self.test_datapoint_labels = test_point_labels
-            # self.test_disease_labels = test_disease_labels
-            # self.test_celltype_node_labels = test_celltype_node_labels
-            # self.test_patient_labels = test_patient_labels
-            # self.test_cluster_centers = test_cluster_centers
-            # self.test_adata = test_adata_object
-            # self.test_point_patient_labels = test_point_patient_labels
-            # self.test_triplets = create_t_triplets(test_distributions, test_distributions_labels, **kwargs)
+        (
+            distributions,
+            distributions_labels,
+            points,
+            point_labels,
+            disease_labels,
+            celltype_node_labels,
+            patient_labels,
+            cluster_centers,
+            adata_object,
+            point_patient_labels,
+        ) = result
 
         self.adata = adata_object
 
@@ -203,6 +153,24 @@ class scRNA_Dataset(Dataset):
             ),
         )
 
+    def split(self, n_splits):
+        """Splits the given dataset into a train and test set and returns their indices.
+
+        :param n_splits: how many splits to return - also defines the train and test size (test size is 1/n_splits)
+        :type n_splits: int
+        :return: list of a list of train indices and a list of test indices
+        :rtype: array-like
+        """
+        labels = self.distributions_labels
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True)
+        indices = np.arange(len(labels))
+        split_indices = []
+
+        for train_idx, test_idx in skf.split(indices, labels):
+            split_indices.append((train_idx.tolist(), test_idx.tolist()))
+
+        return split_indices
+
     def get_cells_by_patients(
         self,
         adata,
@@ -213,7 +181,6 @@ class scRNA_Dataset(Dataset):
         subsample_patient_ratio=1,
         n_cells=1000,
         filter_genes=True,
-        train_size=None,
         **kwargs,
     ):
         """Load and preprocess cells from an anndata set.
@@ -235,8 +202,6 @@ class scRNA_Dataset(Dataset):
         :type n_cells: int, optional
         :param filter_genes: whether to filter out genes with low variance (if True), defaults to True
         :type filter_genes: bool, optional
-        :param train_size: fraction of train split. If None, no splitting is done, defaults to None
-        :type train_size: float, optional
         :return: generated data (distributions and their labels, points and their labels, disease labels, celltype labels, patient labels)
         :rtype: tuple
         """
@@ -350,78 +315,19 @@ class scRNA_Dataset(Dataset):
         adata = adata.copy()
         adata.uns["use_rep_GGML"] = use_rep
 
-        if train_size is None:
-            # return full dataset exactly as before
-            return (
-                distributions,
-                distributions_class,
-                points,
-                point_labels,
-                disease_labels,
-                celltype_node_label,
-                patient_labels,
-                cluster_centers,
-                adata,
-                point_patient_labels,
-            )
-        else:
-            # shuffle unique patients for splitting
-            # shuffled_patients = np.random.permutation(unique_patients_subsampled)
-            # n_train = int(len(shuffled_patients) * train_size)
-            # train_patients = shuffled_patients[:n_train]
-            # test_patients = shuffled_patients[n_train:]
-            test_size = 1 - train_size
-            sss = StratifiedShuffleSplit(
-                n_splits=1, train_size=train_size, test_size=test_size
-            )
-
-            for train_idx, test_idx in sss.split(
-                unique_patients_subsampled, patient_level_labels
-            ):
-                train_patients = unique_patients_subsampled[train_idx]
-                test_patients = unique_patients_subsampled[test_idx]
-
-            # helper to filter data by patients from existing full data arrays
-            def filter_by_patients(patients):
-                # filter points and labels by mask
-                patient_mask = [p in patients for p in point_patient_labels]
-                filtered_points = points[patient_mask]
-                filtered_point_labels = np.array(point_labels)[patient_mask].tolist()
-                filtered_point_patient_labels = np.array(point_patient_labels)[
-                    patient_mask
-                ].tolist()
-
-                # filter for remaining return variables
-                filtered_indices = [
-                    i for i, p in enumerate(patient_labels) if p in patients
-                ]
-                filtered_distributions = [distributions[i] for i in filtered_indices]
-                filtered_distributions_class = [
-                    distributions_class[i] for i in filtered_indices
-                ]
-                filtered_patient_labels = [patient_labels[i] for i in filtered_indices]
-                filtered_disease_labels = [disease_labels[i] for i in filtered_indices]
-                filtered_celltype_node_label = [
-                    celltype_node_label[i] for i in filtered_indices
-                ]
-
-                return (
-                    filtered_distributions,
-                    filtered_distributions_class,
-                    filtered_points,
-                    filtered_point_labels,
-                    filtered_disease_labels,
-                    filtered_celltype_node_label,
-                    filtered_patient_labels,
-                    cluster_centers,
-                    adata,
-                    filtered_point_patient_labels,
-                )
-
-            train_data = filter_by_patients(train_patients)
-            test_data = filter_by_patients(test_patients)
-
-            return train_data, test_data
+        # return full dataset exactly as before
+        return (
+            distributions,
+            distributions_class,
+            points,
+            point_labels,
+            disease_labels,
+            celltype_node_label,
+            patient_labels,
+            cluster_centers,
+            adata,
+            point_patient_labels,
+        )
 
     def compute_OT_on_dists(
         self,
