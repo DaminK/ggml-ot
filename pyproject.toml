@@ -37,7 +37,7 @@ Issues = "https://github.com/DaminK/ggml-ot/issues"
 
 [tool.poetry]
 name = "ggml-ot"
-version = "0.9.5"
+version = "0.9.6"
 description = "Global Ground Metric Learning"
 authors = ["Damin Kuehn <kuehn@cs.rwth-aachen.de>"]
 
