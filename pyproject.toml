@@ -26,10 +26,11 @@ dependencies = [
     "anndata (>=0.11.4,<0.12.0)",
     "torch (>=2.6.0,<3.0.0)",
     "scanpy (>=1.11.1,<2.0.0)",
-    "scikit-learn (>=1.1,<1.6)",
+    "scikit-learn (>=1.7.2,<1.8)",
     "requests (>=2.32.4,<3.0.0)",
     "ipython (>=9.3.0,<10.0.0)",
     "gprofiler-official (>=1.0.0,<2.0.0)",
+    "igraph (>=0.11.9,<0.12.0)",
 ]
 [project.urls]
 Homepage = "https://github.com/DaminK/ggml-ot"
@@ -37,8 +38,8 @@ Issues = "https://github.com/DaminK/ggml-ot/issues"
 
 [tool.poetry]
 name = "ggml-ot"
-version = "0.9.6"
-description = "Global Ground Metric Learning"
+version = "0.9.9"
+description = "Supervised OT with Global Ground Metric Learning"
 authors = ["Damin Kuehn <kuehn@cs.rwth-aachen.de>"]
 
 [tool.poetry.group.dev]
@@ -47,6 +48,7 @@ optional = true
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.2.1"
 ipykernel = "^6.29.5"
+ipywidgets = "^8.1.7"
 
 [tool.poetry.group.docs]
 optional = true
@@ -57,6 +59,12 @@ sphinx-autorun = "^2.0.0"
 sphinx-rtd-theme = "^3.0.2"
 myst-parser = "^4.0.1"
 nbsphinx = "^0.9.7"
+scanpydoc = "^0.15.4"
+#shibuya = "^2025.9.25"
+sphinx-copybutton = "^0.5.2"
+sphinx_autodoc_typehints = "^1.25.2"
+sphinx-book-theme = "^1.1.0"
+sphinx_design = "^0.6.1"
 
 [tool.poetry.group.test]
 optional = true
@@ -65,9 +73,16 @@ optional = true
 pytest = "^8.3.5"
 ruff = "^0.11.6"
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::FutureWarning",
+]
+
 [tool.ruff]
 output-format = "github"
 respect-gitignore = true
+extend-exclude = ["ggml_ot/distances/utils.py"]
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]

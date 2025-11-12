@@ -3,6 +3,13 @@
 # Packages
 /dist/*
 
+# Data
+/examples/data/*
+/examples/dev
+
+# Logs
+*.log
+
 # Unit test / coverage reports
 .coverage
 .pytest_cache
@@ -23,3 +30,5 @@ poetry.toml
 poetry.lock
 *.h5ad
 .ruff_cache/*
+
+ggml_environment.yml
