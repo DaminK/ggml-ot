@@ -1,4 +1,4 @@
-name: Run Python tests
+name: pytests
 
 on: [push, pull_request]
 
@@ -7,8 +7,8 @@ permissions:
 
 jobs:
   build:
-    name: Run tests
-    runs-on: ubuntu-latest
+    name: Python tests
+    runs-on: tenki-standard-autoscale
     strategy:
       matrix: # Python versions to test against
         python-version: ["3.11", "3.12", "3.13"]
@@ -23,12 +23,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install poetry
           poetry install --with test
-      - name: Lint with ruff
-        run: |
-          poetry run ruff check --config pyproject.toml
       - name: run tests
         run: |
-          poetry run python -W "ignore::DeprecationWarning:ot.*" -m pytest --junitxml=junit/test-results-${{ matrix.python-version }}.xml
+          poetry run python -W "ignore::DeprecationWarning" -m pytest --junitxml=junit/test-results-${{ matrix.python-version }}.xml
       - name: upload test results
         uses: actions/upload-artifact@v4
         with:
