@@ -1,9 +1,15 @@
+from __future__ import annotations
+import inspect
+from functools import update_wrapper
+
 import numpy as np
+import torch
 from torch.utils.data import Dataset
 import copy
 
 from ggml_ot.distances import compute_OT
-from ggml_ot.plot import clustermap_embedding
+from ggml_ot._utils._array import not_none, to_float32
+from ggml_ot.settings import settings
 
 import warnings
 
@@ -55,7 +61,7 @@ class TripletDataset(Dataset):
     distribution_labels = None
     "Integer class labels for each distribution."
 
-    triplets: list[tuple[int, int, int]] = None
+    # triplets: list[tuple[int, int, int]] = None
     "Generated triplet index tuples used for training."
 
     dim: int = None
@@ -65,9 +71,8 @@ class TripletDataset(Dataset):
     "Flag as passed to the constructor."
 
     _n_triplets = None
-    _w_theta = None
-
-    covariances = None  # experimental
+    _map_A = None
+    covariances = None
 
     def __init__(
         self,
@@ -77,19 +82,20 @@ class TripletDataset(Dataset):
         weights=None,
         covariances=None,
         identical_supports=False,
+        **kwargs,
     ):
-        self.identical_supports = identical_supports  # TODO or infer from shape of supports
+        self.identical_supports = identical_supports
         self.dim = supports[0].shape[-1]
 
-        self.supports = supports
-        self.covariances = covariances
-        self.weights = weights
+        self.supports = to_float32(supports, backend="torch")
+        self.covariances = to_float32(covariances, backend="torch")
+        self.weights = to_float32(weights, backend="torch")
 
-        self.distribution_labels = distribution_labels  # TODO handle when str are passed
-        self.triplets = create_triplets(distribution_labels, n_triplets)
+        self.distribution_labels = distribution_labels
+        # self.triplets = create_triplets(distribution_labels, n_triplets)
         self._n_triplets = n_triplets
 
-        self._w_theta = None
+        self._map_A = None
 
     @property
     def points(self):
@@ -110,109 +116,227 @@ class TripletDataset(Dataset):
         return self.distribution_labels
 
     @property
-    def w_theta(self):
-        """Learned ground metric as linear transformation (raises a warning if dataset is not trained yet)."""
-        if self._w_theta is None:
+    def map_A(self):
+        """Learned ground metric as a linear map (raises a warning if dataset is not trained yet)."""
+        if self._map_A is None:
             warnings.warn("This dataset has not been trained yet, please call train() on this object first.")
-        return self._w_theta
+        return self._map_A
+
+    @map_A.setter
+    def map_A(self, map_A):
+        self._map_A = map_A
+
+    @property
+    def w_theta(self):
+        """Deprecated: use ``map_A`` instead."""
+        warnings.warn(
+            "dataset.w_theta is deprecated and will be removed in v2.0. Use dataset.map_A instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.map_A
+
+    @w_theta.setter
+    def w_theta(self, map_A):
+        warnings.warn(
+            "dataset.w_theta is deprecated and will be removed in v2.0. Use dataset.map_A instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.map_A = map_A
 
     def __len__(self):
         """Returns the number of triplets.
         :return: number of triplets
         :rtype: int
         """
-        return len(self.triplets)
+        return len(self.distribution_labels)
 
     def __getitem__(self, idx):
-        """Returns a triplet at position idx.
-        :return: triplet
-        :rtype: ([weights],[labels]) | ([supports],[weights],[labels]) #TODO
+        """Returns a distribution and labels at position idx.
+        :return: distribution and label
+        :rtype: (supports, covariances, weights, labels)
         """
-        i, j, k = self.triplets[idx]
 
         if self.identical_supports:
             # Return weights and labels for distributions with identical_supports
             return (
-                np.stack((self.weights[i], self.weights[j], self.weights[k])),
-                np.stack(
-                    (
-                        self.distribution_labels[i],
-                        self.distribution_labels[j],
-                        self.distribution_labels[k],
-                    )
-                ),
+                torch.tensor([], dtype=torch.float32),
+                torch.tensor([], dtype=torch.float32),
+                self.weights[idx],
+                self.distribution_labels[idx],
             )
         else:
-            if self.covariances is None:
-                # Return supports, weights and labels of Empirical Distribution
-                return (
-                    np.stack((self.supports[i], self.supports[j], self.supports[k])),
-                    np.stack((self.weights[i], self.weights[j], self.weights[k])) if self.weights is not None else [],
-                    np.stack(
-                        (
-                            self.distribution_labels[i],
-                            self.distribution_labels[j],
-                            self.distribution_labels[k],
-                        )
-                    ),
-                )
-            else:
-                # Return means (supports), covariances, weights and labels of GMMs
-                # TODO maybe remove as we rarely will have seperate GMMs per patient
-                return (
-                    np.stack((self.supports[i], self.supports[j], self.supports[k])),
-                    np.stack((self.covariances[i], self.covariances[j], self.covariances[k])),
-                    np.stack((self.weights[i], self.weights[j], self.weights[k])) if self.weights is not None else [],
-                    np.stack(
-                        (
-                            self.distribution_labels[i],
-                            self.distribution_labels[j],
-                            self.distribution_labels[k],
-                        )
-                    ),
-                )
+            # Return means (supports), covariances (if exists), weights (if exists) and labels of GMMs
+            return (
+                self.supports[idx],
+                self.covariances[idx] if not_none(self.covariances) else torch.tensor([], dtype=torch.float32),
+                self.weights[idx] if not_none(self.weights) else torch.tensor([], dtype=torch.float32),
+                self.distribution_labels[idx],
+            )
 
-    def train():
-        """Calls train function on this TripletDataset instance"""
-        pass
+    def normalize(self):
+        # supports have shape N, n, d
+        global_mean = self.supports.mean(dim=(0, 1), keepdim=True)  # (1, 1, d)
+        global_std = self.supports.std(dim=(0, 1), keepdim=True)  # (1, 1, d)
 
-    def test():
-        """Calls test function on this TripletDataset instance"""
-        pass
+        epsilon = 1e-6
+        scale = global_std + epsilon
 
-    def train_test():
-        """Calls test_train function on this TripletDataset instance"""
-        pass
+        self.supports = (self.supports - global_mean) / scale
 
-    def test_train_splits():
-        """Generates stratified train-test(-validation) splits on this TripletDataset instance and returns the indices"""
-        pass
+        if not_none(self.covariances):
+            # We create a (1, 1, D, D) scaling matrix to broadcast over B and N
+            # Outer product: scale_matrix[d_i, d_j] = scale[d_i] * scale[d_j]
+            inv_scale_M = torch.diag_embed(scale.pow(-1))
+            self.covariances = inv_scale_M @ self.covariances @ inv_scale_M
 
-    def subset(self, indices):
+        return self
+
+    def train(self, *args, **kwargs):
+        """Train GGML on this dataset.
+
+        Thin wrapper around :func:`ggml_ot.train`.
+        Uses a lazy import to avoid circular imports.
+        """
+        from ..optimization.api import train as _train  # noqa: E402
+
+        return _train(self, *args, **kwargs)
+
+    def train_emd2(self, *args, **kwargs):
+        """Train GGML with exact OT (EMD2) on this dataset.
+
+        Thin wrapper around :func:`ggml_ot.train_emd2`.
+        Uses a lazy import to avoid circular imports.
+        """
+        from ..optimization.api import train_emd2 as _train_emd2  # noqa: E402
+
+        return _train_emd2(self, *args, **kwargs)
+
+    def train_sinkhorn(self, *args, **kwargs):
+        """Train GGML with Sinkhorn-regularized OT on this dataset.
+
+        Thin wrapper around :func:`ggml_ot.train_sinkhorn`.
+        Uses a lazy import to avoid circular imports.
+        """
+        from ..optimization.api import train_sinkhorn as _train_sinkhorn  # noqa: E402
+
+        return _train_sinkhorn(self, *args, **kwargs)
+
+    def train_test(self, *args, **kwargs):
+        """Cross-validate GGML on train/test splits.
+
+        Thin wrapper around :func:`ggml_ot.benchmark.evaluation.train_test`.
+        Uses a lazy import to avoid circular imports.
+        """
+
+        from ..benchmark.evaluation import train_test as _train_test  # noqa: E402
+
+        return _train_test(self, *args, **kwargs)
+
+    def test(self, *args, **kwargs):
+        """Evaluate a ground metric on this dataset.
+
+        Thin wrapper around :func:`ggml_ot.benchmark.evaluation.test`.
+        Uses a lazy import to avoid circular imports.
+        """
+
+        from ..benchmark.evaluation import test as _test  # noqa: E402
+
+        return _test(self, *args, **kwargs)
+
+    def tune(self, *args, **kwargs):
+        """Tune hyperparameters by grid search + cross-validation.
+
+        Thin wrapper around :func:`ggml_ot.benchmark.hyperparams.tune`.
+        Uses a lazy import to avoid circular imports.
+        """
+
+        from ..benchmark.hyperparams import tune as _tune  # noqa: E402
+
+        return _tune(self, *args, **kwargs)
+
+    def fit_gmm(self, *args, **kwargs):
+        """Fit a GMM representation for this dataset.
+
+        Thin wrapper around :func:`ggml_ot.gmm.fit_gmm`.
+        Uses a lazy import to avoid circular imports.
+        """
+        from ..gmm import fit_gmm as _fit_gmm  # noqa: E402
+
+        return _fit_gmm(self, *args, **kwargs)
+
+    def validate_gmm(self, *args, **kwargs):
+        """Validate a fitted GMM on an AnnData-backed dataset.
+
+        Thin wrapper around :func:`ggml_ot.gmm.validate_gmm`.
+        Uses a lazy import to avoid circular imports.
+        """
+        from ..gmm.validation import validate_gmm as _validate_gmm  # noqa: E402
+
+        return _validate_gmm(self, *args, **kwargs)
+
+    def _train_test_split(self, n_splits=10, train_size=0.8, test_size=None, validation_size=0):
+        """Generate stratified train-test(-validation) splits.
+
+        :param dataset: number of re-shuffling and splitting iterations, defaults to 10
+        :type dataset: ggml_ot.TripletDataset
+        :param n_splits: number of re-shuffling and splitting iterations, defaults to 10
+        :type n_splits: int, optional
+        :param train_size: proportion of the dataset to include in the train split, defaults to 0.8
+        :type train_size: float, optional
+        :param test_size: proportion of dataset to include in the test split, defaults to 1 - train_size
+        :type test_size: float, optional
+        :param validation_size: proportion of dataset to include in the validation split, defaults to 0
+        :type validation_size: float, optional
+        :return: indices of train, test data of each split
+        :rtype: array-like of tuples
+        """
+
+        if validation_size > 0:
+            warnings.warn("Validation split not implemented yet")
+
+        if test_size is not None and round(train_size + test_size, 2) != 1.00:
+            train_size = 1.0 - test_size
+
+        from sklearn.model_selection import StratifiedShuffleSplit
+
+        skf = StratifiedShuffleSplit(
+            n_splits=n_splits, test_size=test_size, train_size=train_size, random_state=settings.random_seed
+        )
+        return list(skf.split(np.zeros(len(self.distribution_labels)), self.distribution_labels))
+
+    def _subset(self, indices):
         """Returns dataset subset for indices"""
         split_Dataset = copy.deepcopy(self)
 
         split_Dataset.distribution_labels = [self.distribution_labels[i] for i in indices]
-        split_Dataset.triplets = create_triplets(split_Dataset.distribution_labels, self._n_triplets)
-
+        # split_Dataset.triplets = create_triplets(split_Dataset.distribution_labels, self._n_triplets)
         if not self.identical_supports:
-            split_Dataset.supports = [self.supports[i] for i in indices]
-            if self.covariances is not None:
-                split_Dataset.covariances = [self.covariances[i] for i in indices]
+            if not_none(self.supports):
+                split_Dataset.supports = self.supports[indices]
 
-        if self.weights is not None:
-            split_Dataset.weights = [self.weights[i] for i in indices]
+                if not_none(self.covariances):
+                    split_Dataset.covariances = self.covariances[indices]
 
-        return split_Dataset
+            if not_none(self.weights):
+                split_Dataset.weights = self.weights[indices]
+
+            return split_Dataset
+        else:
+            split_Dataset.weights = self.weights[indices]
+            return split_Dataset
 
     def compute_OT(
         self,
         precomputed_distances=None,
         ground_metric=None,
         legend="Side",
-        plot="clustermap_embedding",
+        plot_type: str | bool = "clustermap_embedding",
         symbols=None,
-        n_threads=1,
+        measure_time=False,
+        show: bool | None = None,
+        save: str | bool | None = None,
         **kwargs,
     ):
         """Compute the Optimal Transport distances between all distributions.
@@ -221,17 +345,48 @@ class TripletDataset(Dataset):
         :type precomputed_distances: array-like, optional
         :param ground_metric: ground metric for OT computation, defaults to None
         :type ground_metric: "euclidean", "cosine", "cityblock", optional
+        :param entropic_reg: pass ``entropic_reg > 0`` via ``**kwargs`` to use
+            Sinkhorn-regularized OT instead of exact EMD2
+        :type entropic_reg: float, optional
         :param w: weight matrix for the mahalanobis distance, defaults to None
         :type w: array-like, optional
-        :param legend: defines where to place the legend, defaults to "Top"
+        :param legend: defines where to place the legend, defaults to "Side"
         :type legend: "Top", "Side", optional
-        :param plot: whether to plot the embedding and clustermap, defaults to True
-        :type plot: bool, optional
-        :param n_threads: either "max" to use all available threads during calculation or the specifc number of threads, defaults to 1
-        :type n_threads: string, int
+        :param plot_type: which visualisation to produce after computing OT distances.
+            One of ``"clustermap_embedding"`` (default), ``"clustermap"``,
+            ``"embedding"``, or ``False`` to skip plotting entirely.
+        :type plot_type: str or bool, optional
+        :param show: Whether to display the plot.  ``None`` (default) automatically
+            shows in interactive environments (notebooks, IPython) and
+            suppresses in scripts.  ``True``/``False`` override explicitly.
+        :type show: bool or None, optional
+        :param save: Whether to save the figure to disk.  ``None``/``False`` skip
+            saving.  ``True`` saves under the default name into
+            ``settings.figdir``.  A *str* is used as the filename.
+        :type save: str, bool, or None, optional
         :return: pairwise OT distance matrix
         :rtype: numpy.ndarray
         """
+        if "save_path" in kwargs:
+            raise TypeError("`save_path` has been removed. Use `save=` and configure `ggml_ot.settings.figdir`.")
+
+        # Back-compat: accept old `plot=` keyword
+        if "plot" in kwargs:
+            import warnings
+
+            warnings.warn(
+                "`plot=` is deprecated, use `plot_type=` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            plot_type = kwargs.pop("plot")
+
+        distance_kwargs = dict(kwargs)
+
+        if measure_time:
+            import time
+
+            start_time = time.time()
 
         # compute the OT distances
         D = compute_OT(
@@ -241,48 +396,63 @@ class TripletDataset(Dataset):
             self.identical_supports,
             precomputed_distances=precomputed_distances,
             ground_metric=ground_metric,
-            n_threads=n_threads,
-            **kwargs,
+            **distance_kwargs,
         )
 
+        if measure_time:
+            end_time = time.time()
+            total_time = end_time - start_time
+
         # plot the clustermap and embedding
-        if isinstance(plot, str) or plot:
+        if isinstance(plot_type, str) or plot_type:
+            from ggml_ot.plot import clustermap_embedding
+
             clustermap_embedding(
-                D,
+                D.cpu() if isinstance(D, torch.Tensor) else D,
                 self.distribution_labels_str,
                 symbols=self.symbols if (symbols is None and hasattr(self, "symbols")) else symbols,
                 legend=legend,
-                plot=plot if isinstance(plot, str) else "clustermap_embedding",
+                plot=plot_type if isinstance(plot_type, str) else "clustermap_embedding",
                 title=f"{ground_metric} ground metric" if isinstance(ground_metric, str) else "GGML",
-                s=200,
+                show=show,
+                save=save,
             )
-        return D
+        if measure_time:
+            return D, total_time
+        else:
+            return D
 
 
-def create_triplets(labels, t=5, **kwargs):
-    """Creates t triplets for each point for metric learning where i and j are from the same class and
-    k is from a different class.
+# Update TripletDataset methods with signatures and docstrings from actual implementations
+from ..optimization.api import train as _ggml_train  # noqa: E402
+from ..optimization.api import train_emd2 as _ggml_train_emd2  # noqa: E402
+from ..optimization.api import train_sinkhorn as _ggml_train_sinkhorn  # noqa: E402
+from ..benchmark.evaluation import train_test as _bench_train_test  # noqa: E402
+from ..benchmark.evaluation import test as _bench_test  # noqa: E402
+from ..benchmark.hyperparams import tune as _bench_tune  # noqa: E402
+from ..gmm.fit import fit_gmm as _gmm_fit_gmm  # noqa: E402
+from ..gmm.validation import validate_gmm as _gmm_validate_gmm  # noqa: E402
 
-    :param labels: distribution labels to create triplets from
-    :type labels: array-like
-    :param t: number of neighbors to sample from both the same and different classes, defaults to 5
-    :type t: int, optional
-    :return: list of created triplets
-    :rtype: list of tuples
-    """
-    labels = np.asarray(labels)
-    triplets = []
-    replace = any(np.unique(labels, return_counts=True)[1] < t)
+update_wrapper(TripletDataset.train, _ggml_train)
+TripletDataset.train.__signature__ = inspect.signature(_ggml_train)
 
-    def get_neighbors(class_, skip=None):
-        # get t elements from distributions where labels = class
-        # TODO optional skip self
-        return np.random.choice(np.where(labels == class_)[0], size=t, replace=replace)
+update_wrapper(TripletDataset.train_emd2, _ggml_train_emd2)
+TripletDataset.train_emd2.__signature__ = inspect.signature(_ggml_train_emd2)
 
-    for j, c_j in enumerate(labels):
-        for i in get_neighbors(c_j):
-            for c_k in np.unique(labels):
-                if c_k != c_j:
-                    for k in get_neighbors(c_k):
-                        triplets.append((i, j, k))
-    return triplets
+update_wrapper(TripletDataset.train_sinkhorn, _ggml_train_sinkhorn)
+TripletDataset.train_sinkhorn.__signature__ = inspect.signature(_ggml_train_sinkhorn)
+
+update_wrapper(TripletDataset.train_test, _bench_train_test)
+TripletDataset.train_test.__signature__ = inspect.signature(_bench_train_test)
+
+update_wrapper(TripletDataset.test, _bench_test)
+TripletDataset.test.__signature__ = inspect.signature(_bench_test)
+
+update_wrapper(TripletDataset.tune, _bench_tune)
+TripletDataset.tune.__signature__ = inspect.signature(_bench_tune)
+
+update_wrapper(TripletDataset.fit_gmm, _gmm_fit_gmm)
+TripletDataset.fit_gmm.__signature__ = inspect.signature(_gmm_fit_gmm)
+
+update_wrapper(TripletDataset.validate_gmm, _gmm_validate_gmm)
+TripletDataset.validate_gmm.__signature__ = inspect.signature(_gmm_validate_gmm)

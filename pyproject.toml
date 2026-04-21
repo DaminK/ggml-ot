@@ -1,10 +1,16 @@
 [project]
 name = "ggml-ot"
+version = "0.9.91"
+description = "Supervised OT with Global Ground Metric Learning"
 authors = [{ name = "Damin Kuehn", email = "kuehn@cs.rwth-aachen.de" }]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Development Status :: 5 - Production/Stable",
     "Framework :: Sphinx",
     "Intended Audience :: Science/Research",
@@ -14,33 +20,38 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
-    "tqdm (>=4.67.1,<5.0.0)",
-    "scipy (>=1.15.2,<2.0.0)",
-    "matplotlib (>=3.10.1,<4.0.0)",
-    "seaborn (>=0.13.2,<0.14.0)",
-    "umap-learn (>=0.5.7,<0.6.0)",
-    "numpy (>=2.2.4,<3.0.0)",
-    "pandas (>=2.2.3,<3.0.0)",
-    "pot (>=0.9.5,<0.10.0)",
-    "pydiffmap (>=0.2.0.1,<0.3.0.0)",
-    "anndata (>=0.11.4,<0.12.0)",
-    "torch (>=2.6.0,<3.0.0)",
-    "scanpy (>=1.11.1,<2.0.0)",
-    "scikit-learn (>=1.7.2,<1.8)",
-    "requests (>=2.32.4,<3.0.0)",
-    "ipython (>=9.3.0,<10.0.0)",
-    "gprofiler-official (>=1.0.0,<2.0.0)",
-    "igraph (>=0.11.9,<0.12.0)",
+    "tqdm>=4.67.1,<5.0.0",
+    "scipy>=1.11.0,<2.0.0",        # Relaxed for 3.10
+    "matplotlib>=3.8.0,<4.0.0",    # Relaxed
+    "seaborn>=0.13.0,<1.0.0",
+    "umap-learn>=0.5.0,<0.6.0",
+    "numpy>=1.26.0,<3.0.0",        # Bridge version for 3.10/3.11/3.12
+    "pandas>=2.0.0,<3.0.0",        # Relaxed
+    "pot>=0.9.5,<1.0.0",
+    "pydiffmap>=0.2.0,<1.0.0",
+    "anndata>=0.10.0,<0.12.0",
+    "torch>=2.0.0,<3.0.0",         # Relaxed
+    "scanpy>=1.10.0,<2.0.0",       # Relaxed
+    "scikit-learn>=1.4.0,<2.0.0",
+    "requests>=2.31.0,<3.0.0",
+    "ipython>=8.18.0,<10.0.0",     # Supports 8.18+ (for 3.10) and 9.x (for 3.11+)
+    "gprofiler-official>=1.0.0,<2.0.0",
+    "decoupler>=2.1,<3",
+    "igraph>=0.11.0,<1.0.0",
+    "tbb (>=2021.6)",
 ]
+
 [project.urls]
 Homepage = "https://github.com/DaminK/ggml-ot"
 Issues = "https://github.com/DaminK/ggml-ot/issues"
 
 [tool.poetry]
+# Keeping metadata here for compatibility with older tools
 name = "ggml-ot"
-version = "0.9.9"
+version = "0.9.91"
 description = "Supervised OT with Global Ground Metric Learning"
 authors = ["Damin Kuehn <kuehn@cs.rwth-aachen.de>"]
+packages = [{include = "ggml_ot"}]
 
 [tool.poetry.group.dev]
 optional = true
@@ -60,23 +71,70 @@ sphinx-rtd-theme = "^3.0.2"
 myst-parser = "^4.0.1"
 nbsphinx = "^0.9.7"
 scanpydoc = "^0.15.4"
-#shibuya = "^2025.9.25"
 sphinx-copybutton = "^0.5.2"
 sphinx_autodoc_typehints = "^1.25.2"
 sphinx-book-theme = "^1.1.0"
 sphinx_design = "^0.6.1"
+
+# For benchmarking against competing methods with Snakemake
+[tool.poetry.group.pipeline]
+optional = true
+
+[tool.poetry.group.pipeline.dependencies]
+snakemake = ">=7.32,<9"
+pyyaml = "^6.0.2"
+autograd = "^1.7.0"
+pymanopt = "^2.2.1"
 
 [tool.poetry.group.test]
 optional = true
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.5"
+pytest-cov = "^6.1.1"
+pytest-dependency = "^0.6"
+pytest-html = "^4.1.1"
+coverage = { version = "^7.8.2", extras = ["toml"] }
 ruff = "^0.11.6"
+pyyaml = "^6.0.2"
 
 [tool.pytest.ini_options]
 filterwarnings = [
+    # Suppress FutureWarnings from dependencies (numpy, pandas, etc.) about upcoming API changes
     "ignore::FutureWarning",
+    # Jupyter paths migration warning from IPython/jupyter_core; not affected, no action needed
+    "ignore:Jupyter is migrating its paths.*:DeprecationWarning",
+    # TBB warning occurs when system has older TBB (<2021.6) installed; numba falls back gracefully to OpenMP/workqueue
+    "ignore:The TBB threading layer requires TBB version.*:numba.core.errors.NumbaWarning",
 ]
+addopts = "-m 'not dev and not perf'"
+# CI marker gating cheat-sheet:
+#   Default CI:        (addopts) → smoke tests including GMM
+#   GMM smoke:         -m 'gmm and not perf'  → non-perf GMM tests (test_module_gmm, test_gmm_ggml)
+#   Perf (all):        -m 'perf'              → empirical + minibatch + GMM perf
+#   Perf (non-GMM):    -m 'perf and not gmm'  → empirical + minibatch only
+markers = [
+    "anndata: tests with AnnData integration (data source controlled via --data-source)",
+    "dev: development-only tests that validate CI/pytest/docs/setup",
+    "perf: performance benchmarks (empirical, minibatch, GMM perf)",
+    "gmm: tests involving GMM integration (smoke + perf)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["ggml_ot"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+omit = [
+    "tests/*",
+    "docs/*",
+    "dev/*",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
 
 [tool.ruff]
 output-format = "github"

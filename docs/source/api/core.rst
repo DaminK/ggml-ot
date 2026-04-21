@@ -16,6 +16,8 @@ Training & hyperparameter tuning
    :toctree: ../generated/
 
    train
+   train_emd2
+   train_sinkhorn
    tune
 
 ++++++++++++++++

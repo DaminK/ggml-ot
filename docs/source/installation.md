@@ -20,4 +20,13 @@ If you want to use the latest version directly from GitHub, you can clone the re
 ```
 This will install the package in a regular environment without developer tools.
 
-For contributing to ggml-ot, you can install it in different modes, see [the contributor guide](contributors_guide.md#installation-of-development-version) for more details.
+For contributing to ggml-ot, you can install it in different modes, see [the contributor guide](contributors/development.md#installation-for-contributors) for more details.
+
+## GPU Support
+
+ggml-ot uses PyTorch under the hood. By default, `pip install ggml-ot` installs the CPU-only build of PyTorch. To use `ggml_ot.settings.device = "cuda"`, you need a CUDA-enabled PyTorch installation. Install it **before** installing ggml-ot:
+```bash
+   pip install torch --index-url https://download.pytorch.org/whl/cu121   # CUDA 12.1
+   pip install ggml-ot
+```
+See the [PyTorch install guide](https://pytorch.org/get-started/locally/) for other CUDA versions.

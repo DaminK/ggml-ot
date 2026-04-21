@@ -1,7 +1,10 @@
-name: Publish to PyPI
+name: build_and_publish
 
 on:
+  pull_request:
   push:
+    branches:
+      - "**"
     tags:
       - '*.*.*'
 
@@ -9,14 +12,9 @@ permissions:
   contents: read
 
 jobs:
-  pypi-publish:
-    name: Upload release to PyPI
-    runs-on: tenki-standard-autoscale
-    environment:
-      name: pypi
-      url: https://pypi.org/project/ggml-ot/
-    permissions:
-      id-token: write
+  build-distributions:
+    name: Build distributions
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,20 +25,35 @@ jobs:
           python-version: "3.11"
 
       - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python - -y
+        uses: snok/install-poetry@v1
 
-      - name: Update PATH
-        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Update Poetry configuration
-        run: poetry config virtualenvs.create false
-
-      - name: Install dependencies
-        run: poetry install --sync --no-interaction
-
-      - name: Package project
+      - name: Build package distributions
         run: poetry build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  pypi-publish:
+    name: Upload release to PyPI
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build-distributions
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ggml-ot/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

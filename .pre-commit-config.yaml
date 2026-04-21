@@ -3,7 +3,7 @@ repos:
   rev: v5.0.0
   hooks:
       - id: check-added-large-files
-        args: ["--maxkb=5000"]
+        args: ["--maxkb=7500"]
       - id: check-case-conflict
       - id: check-illegal-windows-names
       - id: check-toml

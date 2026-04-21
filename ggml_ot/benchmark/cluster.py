@@ -1,4 +1,6 @@
 import numpy as np
+import numpy.typing as npt
+
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import (
     silhouette_score,
@@ -12,7 +14,7 @@ import warnings
 warnings.simplefilter("ignore", category=FutureWarning)
 
 
-def hierachical_clustering(ot_distances, labels, n_cluster=None):
+def hierarchical_clustering(ot_distances, labels, n_cluster=None):
     if n_cluster is None:
         n_cluster = len(np.unique(labels))
 
@@ -27,7 +29,7 @@ def hierachical_clustering(ot_distances, labels, n_cluster=None):
     ari = adjusted_rand_score(labels, pred_cluster)
     vi = variation_of_info(labels, pred_cluster)
 
-    return mi, ari, vi
+    return {"mi": mi, "ari": ari, "vi": vi}
 
 
 def silhouette_score_wrapper(dists, labels):
@@ -61,8 +63,8 @@ def variation_of_info(*args,torch = False,**kwargs):
 
 # Thus, we directly use the relevant code under MIT license https://pypi.org/project/python-voi/
 def variation_of_info(
-    labels1: np.typing.NDArray[np.int32],
-    labels2: np.typing.NDArray[np.int32],
+    labels1: npt.NDArray[np.int32],
+    labels2: npt.NDArray[np.int32],
     return_split_merge: bool = False,
 ):
     """
@@ -91,7 +93,8 @@ def variation_of_info(
 
 
 def VI_np(labels1, labels2, return_split_merge=False):
-    assert len(labels2) == len(labels1)
+    if len(labels2) != len(labels1):
+        raise ValueError(f"labels1 and labels2 must have the same length, got {len(labels1)} and {len(labels2)}")
     size = len(labels2)
 
     mutual_labels = (labels1.astype(np.uint64) << 32) + labels2.astype(np.uint64)

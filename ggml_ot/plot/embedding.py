@@ -1,5 +1,9 @@
-### Plot embedding ###
+"""2-D embedding of a precomputed distance matrix."""
+
+from __future__ import annotations
+
 import warnings
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -13,10 +17,13 @@ from sklearn.manifold import TSNE
 from sklearn import manifold
 from pydiffmap import diffusion_map
 
+from ggml_ot.plot._utils import savefig_or_show
+
 
 def emb(
     distances,
     labels,
+    *,
     method="umap",
     precomputed_emb=None,
     symbols=None,
@@ -24,66 +31,94 @@ def emb(
     cluster_ID=None,
     title="Embedding",
     cmap="Set2",
-    save_path=None,
     legend="auto",
-    s=15,
+    s=200,
     hue_order=None,
     annotation=None,
     linewidth=0.02,
     annotation_image_path=None,
+    return_embedding: bool = False,
+    show: bool | None = None,
+    save: str | bool | None = None,
     **kwargs,
 ):
-    """Plots embedding of a distance matrix using various reduction methods.
+    """Plot a 2-D embedding of a precomputed distance matrix.
 
-    :param dists: distance matrix to plot the embeddings from of shape (n_samples, n_samples)
-    :type dists: array-like
-    :param labels: list of class labels to use for coloring the points, defaults to None
-    :type labels: array-like
-    :param method: dimensionality reduction method, defaults to 'umap'
-    :type method: "umap", "tsne", "diffusion", "fast_diffusion", "mds", "phate", optional
-    :param precomputed_emb: precomputed embeddings to plot of shape (n_samples, 2), defaults to None
-    :type precomputed_emb: array-like, optional
+    Parameters
+    ----------
+    distances : array-like
+        Distance matrix of shape ``(n_samples, n_samples)``.
+    labels : array-like
+        Class labels used for colouring the points.
+    method : str, default ``"umap"``
+        Dimensionality-reduction method.
+        One of ``"umap"``, ``"tsne"``, ``"diffusion"``,
+        ``"fast_diffusion"``, ``"mds"``.
+    precomputed_emb : array-like or None, default None
+        Precomputed 2-D coordinates of shape ``(n_samples, 2)``.  When
+        provided, *method* is ignored.
+    symbols : array-like or None, default None
+        Labels used for marker styles.
+    ax : matplotlib.axes.Axes or None, default None
+        Axes to draw on.  A new figure is created when ``None``.
+    cluster_ID : array-like of bool or None, default None
+        Flags indicating centroid / medoid / representative points.
+    title : str or None, default ``"Embedding"``
+        Plot title.
+    cmap : str, dict, or colormap, default ``"Set2"``
+        Colour palette for the scatter plot.
+    legend : str, default ``"auto"``
+        Legend placement.  One of ``"auto"``, ``"Side"``/``"right"``,
+        ``"left"``, ``"Top"``, ``"Bottom"``, ``"Inside"``, or ``False``.
+    s : int, default 200
+        Marker size.
+    hue_order : array-like or None, default None
+        Custom legend ordering of class labels.
+    annotation : array-like of str or None, default None
+        Text annotations displayed on each point.
+    linewidth : float, default 0.02
+        Edge width of scatter markers.
+    annotation_image_path : array-like of str or None, default None
+        Image paths to overlay on the plot.
+    return_embedding : bool, default False
+        If ``True``, return ``(ax, embedding)`` instead of just ``ax``.
+    show : bool or None, default None
+        Whether to display the plot.  ``None`` (default) automatically
+        shows in interactive environments (notebooks, IPython) and
+        suppresses in scripts.  ``True``/``False`` override explicitly.
+    save : str, bool, or None, default None
+        Whether to save the figure to disk.  ``None``/``False`` skip
+        saving.  ``True`` saves to ``settings.figdir/embedding.<figformat>``;
+        a *str* overrides the filename.
 
-    :param symbols: list of labels to use for marker styles, defaults to None
-    :type symbols: array-like, optional
-    :param ax: axes on which to draw the embedding, defaults to None
-    :type ax: matplotlib.axes.Axes, optional
-    :param cluster_ID: boolean array indicating whether a point is a centroid/ medoid/ representative point of a cluster or not, defaults to None
-    :type cluster_ID: array-like of bool, optional
-    :param title: title of the plot, defaults to None
-    :type title: str, optional
-    :param cmap: colormap used for coloring the points, defaults to "tab20"
-    :type cmap: str, array-like, dict or matplotlib.colors.Colormap, optional
-    :param save_path: file path to save generated plot (not saved if None), defaults to None
-    :type save_path: str, optional
-    :param verbose: display title if True, defaults to True
-    :type verbose: bool, optional
-    :param legend: defines where to place the legend, defaults to 'Top'
-    :type legend: "Top", "Side", optional
-    :param s: marker size used in the plot, defaults to 15
-    :type s: int, optional
-    :param hue_order: order in which class labels are presented in legend, defaults to None
-    :type hue_order: array-like of str, optional
-    :param annotation: text to display on each point, defaults to None
-    :type annotation: array-like of str, optional
-    :param linewidth: linewidth of marker edges, defaults to 0.02
-    :type linewidth: float, optional
-    :param annotation_image_path: list of image paths to overlay on plot, defaults to None
-    :type annotation_image_path: array-like of str, optional
-    :return: 2D embedding for plotting
-    :rtype: numpy.ndarray
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes containing the embedding plot (when
+        ``return_embedding=False``).
+    tuple[matplotlib.axes.Axes, numpy.ndarray]
+        ``(ax, embedding)`` when ``return_embedding=True``.
+
+    Notes
+    -----
+    Computes a 2-D layout from a precomputed distance matrix using the
+    chosen dimensionality-reduction method and renders a scatter plot
+    coloured by ``labels``.  This is the main function behind
+    ``ggml_ot.pl.embedding`` and is used by the benchmark evaluation
+    helpers to visualise OT distances between patients.
+
+    Supported methods: ``"umap"`` (default, adaptive ``n_neighbors``),
+    ``"tsne"``, ``"mds"``, ``"diffusion"``, ``"fast_diffusion"``.
     """
-
-    emb = precomputed_emb if precomputed_emb is not None else _compute_embedding(distances, method)
-    df, type_to_size = _create_dataframe(emb, labels, symbols, annotation, cluster_ID, annotation_image_path)
+    embedding = precomputed_emb if precomputed_emb is not None else _compute_embedding(distances, method, labels=labels)
+    df, type_to_size = _create_dataframe(embedding, labels, symbols, annotation, cluster_ID, annotation_image_path)
 
     # Determine legend handling
     position_legend = legend
     if position_legend in ["Side", "Top", "Bottom", "Inside"]:
         legend = "auto"
 
-    # Scatter plot
-    # create axis if not provided
+    # Create axes if not provided
     if ax is None:
         figsize = (30, 7) if annotation_image_path is not None else (5, 5)
         _, ax = plt.subplots(figsize=figsize)
@@ -106,55 +141,50 @@ def emb(
         hue_order=hue_order,
     )
 
-    # move legend after plotting
+    # Legend placement
     if position_legend in ["Side", "Top", "Bottom", "Inside"]:
         _setup_legend(ax, position_legend)
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
-    # plt.subplots_adjust(top=10 / 12)
 
     if position_legend == "Side" or position_legend == "right":
-        legend = True
         sns.move_legend(ax, "upper left", bbox_to_anchor=(1.02, 1), frameon=False)
     elif position_legend == "left":
-        legend = True
         sns.move_legend(ax, "upper right", bbox_to_anchor=(-0.02, 1), frameon=False)
     elif position_legend == "Top":
-        legend = True
         sns.move_legend(ax, "lower center", bbox_to_anchor=(0.5, 1.05), ncol=3, frameon=True)
     elif position_legend == "Bottom":
-        legend = True
         sns.move_legend(ax, "upper center", bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=True)
     elif position_legend == "Inside":
-        legend = True
         sns.move_legend(ax, "best", frameon=True)
 
-    # display title if desired
     if title is not None:
         ax.set_title(title)
 
-    # add images or text annotations if desired
+    # Image / text overlays
     _add_image_overlays(ax, df, annotation_image_path)
     if annotation is not None:
         _add_text_annotations(ax, df)
 
-    # save if desired
-    if save_path is not None:
-        print(save_path)
-        ax.figure.savefig(save_path)
+    savefig_or_show(ax, default_name="embedding", show=show, save=save)
 
-    return emb
+    if return_embedding:
+        return ax, embedding
+    return ax
 
 
-def _compute_embedding(distances, method):
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _compute_embedding(distances, method, labels=None):
     if method == "umap":
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
-            n_neighbors = np.max([int(len(distances) / 4), 15])  # increase default n_neighbors=15 for large datasets
-            reducer = umap.UMAP(metric="precomputed", n_neighbors=n_neighbors)
-            return reducer.fit_transform(
-                distances,
-            )
+            n_neighbors = _estimate_n_neighbors(distances, labels)
+            reducer = umap.UMAP(metric="precomputed", n_neighbors=n_neighbors, min_dist=0.5)
+            return reducer.fit_transform(distances)
 
     elif method == "tsne":
         return TSNE(
@@ -204,8 +234,32 @@ def _create_dataframe(emb, colors, symbols, annotation, cluster_ID, annotation_i
     return df, type_to_size
 
 
+def _estimate_n_neighbors(distances, labels=None):
+    """Pick a reasonable n_neighbors for UMAP on a precomputed distance matrix.
+
+    Strategy (floor + class cap):
+      1. Start with ~1/3 of the samples as the base.
+      2. If class labels are provided, cap at the smallest class size
+         so that tiny classes are not absorbed into larger ones.
+      3. Always keep at least 5 to guarantee a connected UMAP graph
+         (prevents isolated-island artefacts).
+    """
+    n_samples = distances.shape[0]
+    # Base: roughly one-third of samples
+    n_neighbors = max(5, n_samples // 3)
+
+    if labels is not None:
+        _, counts = np.unique(labels, return_counts=True)
+        min_class_size = int(counts.min()) if counts.size else n_samples
+        # Cap at smallest class size to protect small classes,
+        # but never drop below 5 (graph connectivity floor)
+        n_neighbors = max(5, min(n_neighbors, min_class_size))
+
+    # Cannot exceed n-1 (UMAP hard constraint)
+    return min(n_neighbors, n_samples - 1)
+
+
 def _setup_legend(ax, position_legend):
-    # handle legend position
     if position_legend == "Side":
         sns.move_legend(ax, "upper left", bbox_to_anchor=(1.05, 1), frameon=True)
     elif position_legend == "Top":
@@ -220,7 +274,6 @@ def _add_image_overlays(ax, df, paths):
     if paths is None:
         return
 
-    # adjust image parameters based on context
     if "histo" in paths[0]:
         scaling, width, height = 0.025, 0.8, 0.8
     elif "niche" in paths[0]:

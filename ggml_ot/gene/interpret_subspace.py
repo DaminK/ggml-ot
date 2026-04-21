@@ -4,14 +4,16 @@ import numpy as np
 import seaborn as sns
 import gprofiler
 
+from ggml_ot.plot._utils import savefig_or_show
+
 
 def importance(
     adata,
     n_top_genes=10,
     reconstruct_covariances=False,
     only_diagonal=False,
-    plot=True,
-    save_path=None,
+    show: bool | None = None,
+    save: str | bool | None = None,
 ):
     """Identifes and visualizes the most important genes contributing to each component of a learned low-dimensional gene embedding from an Anndata object.
 
@@ -23,10 +25,14 @@ def importance(
     :type reconstruct_covariances: bool, optional
     :param only_diagonal: consider only the diagonal of the reconstructed covariance matrix if set to True, defaults to False
     :type only_diagonal: bool, optional
-    :param plot: whether to display the gene importance, defaults to True
-    :type plot: bool, optional
-    :param save_path: path to save the generated plots as PDF, defaults to None
-    :type save_path: str, optional
+    :param show: Whether to display the plot.  ``None`` (default) automatically shows in
+        interactive environments (notebooks, IPython) and suppresses in scripts.
+        ``True``/``False`` override explicitly.
+    :type show: bool or None, optional
+    :param save: Whether to save the figure to disk.  ``None``/``False`` skip saving.
+        ``True`` saves under the default name into ``settings.figdir``.
+        A *str* is used as the filename.
+    :type save: str, bool, or None, optional
     :return: a list of lists containing the names of the most important genes for each component, sorted by relative importance
     :rtype: array-like
     """
@@ -39,14 +45,14 @@ def importance(
         )
         return []
 
-    w_theta = adata.uns["W_GGMLs"]
+    map_A = adata.uns["W_GGMLs"]
     gene_name = (
         [gene for gene in adata.var["feature_name"]]
         if "feature_name" in adata.var.keys()
         else [gene for gene in adata.var.index]
     )
 
-    rank_k = w_theta.shape[0]
+    rank_k = map_A.shape[0]
     components = range(rank_k) if not reconstruct_covariances else [0]
 
     most_important_genes_list = []
@@ -55,9 +61,9 @@ def importance(
 
     for component in components:
         if reconstruct_covariances:
-            w_theta_gene_space = np.dot(np.transpose(w_theta), w_theta)
+            w_theta_gene_space = np.dot(np.transpose(map_A), map_A)
         else:
-            w_theta_gene_space = w_theta[component, :]
+            w_theta_gene_space = map_A[component, :]
 
         if not only_diagonal and reconstruct_covariances:
             gene_pair_names = np.zeros((len(gene_name), len(gene_name)), dtype="object")
@@ -85,69 +91,61 @@ def importance(
 
         most_important_genes_list.append(most_important_genes_names[sort_by_value])
 
-        if plot:
-            gene_df = pd.DataFrame(
-                {
-                    "genes": most_important_genes_names[sort_by_value],
-                    "relative importance": most_important_genes_values[sort_by_value],
-                    "up/down": np.sign(most_important_genes_values[sort_by_value]),
-                }
-            )
-            up_color = "lightsteelblue"
-            down_color = "darkred"
-            no_color = "grey"
+        gene_df = pd.DataFrame(
+            {
+                "genes": most_important_genes_names[sort_by_value],
+                "relative importance": most_important_genes_values[sort_by_value],
+                "up/down": np.sign(most_important_genes_values[sort_by_value]),
+            }
+        )
+        up_color = "lightsteelblue"
+        down_color = "darkred"
+        no_color = "grey"
 
-            def addlabels(x, y, color=None):
-                for i in range(len(y)):
-                    plt.text(
-                        x[i] // 2,
-                        i,
-                        y[i],
-                        ha="center",
-                        color=color,
-                        verticalalignment="center",
-                    )
+        def addlabels(x, y, color=None):
+            for i in range(len(y)):
+                plt.text(
+                    x[i] // 2,
+                    i,
+                    y[i],
+                    ha="center",
+                    color=color,
+                    verticalalignment="center",
+                )
 
-            # TODO Decide which plots look better
-            # plt.figure(figsize=(2,int(n_top_genes *0.5)))
-            # sns.stripplot(gene_df, x="relative importance", y="genes", hue="up/down",legend=False,palette={-1:down_color,0:no_color,1:up_color})
+        sns.barplot(
+            gene_df,
+            x="relative importance",
+            y="genes",
+            hue="up/down",
+            legend=False,
+            palette={-1: down_color, 0: no_color, 1: up_color},
+            ax=axs[component],
+        ).set_title(f"W_GGML {component + 1}")
 
-            sns.barplot(
-                gene_df,
-                x="relative importance",
-                y="genes",
-                hue="up/down",
-                legend=False,
-                palette={-1: down_color, 0: no_color, 1: up_color},
-                ax=axs[component],
-            ).set_title(f"W_GGML {component + 1}")
+        addlabels(
+            most_important_genes_values[sort_by_value],
+            most_important_genes_names[sort_by_value],
+            color="black",
+        )
+        axs[component].set_yticks([])
+        axs[component].vlines(
+            x=1,
+            ymin=-1 / 2,
+            ymax=len(sort_by_value),
+            color="black",
+            label="axvline - full height",
+            linestyles="dashed",
+        )
+        axs[component].text(
+            x=1 + 0.3,
+            y=len(sort_by_value) - 1 / 2,
+            s="average",
+            verticalalignment="top",
+        )
 
-            addlabels(
-                most_important_genes_values[sort_by_value],
-                most_important_genes_names[sort_by_value],
-                color="black",
-            )
-            axs[component].set_yticks([])
-            axs[component].vlines(
-                x=1,
-                ymin=-1 / 2,
-                ymax=len(sort_by_value),
-                color="black",
-                label="axvline - full height",
-                linestyles="dashed",
-            )
-            axs[component].text(
-                x=1 + 0.3,
-                y=len(sort_by_value) - 1 / 2,
-                s="average",
-                verticalalignment="top",
-            )  # rotation=90)
-
-    if plot:
-        fig.title(f"Gene Importance (Top {n_top_genes})")
-        if save_path is not None:
-            plt.savefig(save_path + f"feature_importance_comp{component}.pdf")
-        plt.show()
+    fig.suptitle(f"Gene Importance (Top {n_top_genes})")
+    savefig_or_show(fig, default_name="gene_importance", show=show, save=save)
 
     return most_important_genes_list
 
@@ -155,7 +153,8 @@ def importance(
 def enrichment1(
     top_genes,
     ordered=True,
-    save_path=None,
+    show: bool | None = None,
+    save: str | bool | None = None,
     thresh=0.05,
     organism="hsapiens",
 ):
@@ -165,23 +164,19 @@ def enrichment1(
     :type top_genes: array-like
     :param ordered: whether the gene lists are ordered by importance, defaults to True
     :type ordered: bool, optional
-    :param save_path: path to save plots, defaults to None
-    :type save_path: str, optional
+    :param show: Whether to display the plot.  ``None`` (default) automatically shows in
+        interactive environments (notebooks, IPython) and suppresses in scripts.
+        ``True``/``False`` override explicitly.
+    :type show: bool or None, optional
+    :param save: Whether to save the figure to disk.  ``None``/``False`` skip saving.
+        ``True`` saves under the default name into ``settings.figdir``.
+        A *str* is used as the filename.
+    :type save: str, bool, or None, optional
     :param thresh: threshold for significance in enrichment, defaults to 0.01
     :type thresh: float, optional
     :param organism: organism ID for g:Profiler, defaults to "hsapiens"
     :type organism: str, optional
     """
-
-    # thought different version numbers from Enseml IDs might be a problem, but I guess it's not
-    # def strip_ensembl_version(genes):
-    #     """Remove version numbers from Ensembl IDs (ENSG00000284607.1 → ENSG00000284607)."""
-    #     return [g.split(".")[0] if g.startswith("ENSG") else g for g in genes]
-
-    # most_important_genes_list = [
-    #     strip_ensembl_version(gene_list) for gene_list in most_important_genes_list
-    # ]
-
     for i, most_important_genes in enumerate(top_genes):
         gp = gprofiler.GProfiler(return_dataframe=True)
         enrich = gp.profile(
@@ -192,39 +187,15 @@ def enrichment1(
         )
         enrich["NES"] = -np.log10(enrich["p_value"])
 
-        plt.figure(figsize=(5, 5))
-        plt.subplots_adjust(left=0.5)
-        sns.barplot(x="p_value", y="name", data=enrich, color="green")
-        plt.title(f"Gene Enrichment for W_GGML{i + 1} (Top {len(most_important_genes)} Genes)")
+        fig, ax = plt.subplots(figsize=(5, 5))
+        fig.subplots_adjust(left=0.5)
+        sns.barplot(x="p_value", y="name", data=enrich, color="green", ax=ax)
+        ax.set_title(f"Gene Enrichment for W_GGML{i + 1} (Top {len(most_important_genes)} Genes)")
 
-        if save_path is not None:
-            plt.savefig(save_path + f"biological_process_com{i}.pdf")
-        plt.show()
-    """
+        savefig_or_show(fig, default_name=f"biological_process_com{i}", show=show, save=save)
+
     gp = gprofiler.GProfiler(return_dataframe=True)
     enrich = gp.profile(
-        query={
-            f"component{i}": list(most_important_genes)
-            for i, most_important_genes in enumerate(most_important_genes_list)
-        },
-        ordered=ordered,
-        user_threshold=thresh,
-        organism=organism,
-    )
-    enrich["NES"] = -np.log10(enrich["p_value"])
-
-    plt.figure(figsize=(10, 30))
-    plt.subplots_adjust(left=0.5)
-    sns.barplot(x="p_value", y="name", data=enrich, color="green")
-    plt.title("Gene Enrichment queried all components")
-
-    if save_path is not None:
-        plt.savefig(save_path + "biological_process_multiquery.pdf")
-    plt.show()
-    """
-    gp = gprofiler.GProfiler(return_dataframe=True)
-    enrich = gp.profile(
-        # organism="hsapiens",
         organism=organism,
         query=np.concatenate(top_genes).tolist(),
         ordered=ordered,
@@ -232,11 +203,9 @@ def enrichment1(
     )
     enrich["NES"] = -np.log10(enrich["p_value"])
 
-    plt.figure(figsize=(10, 30))
-    plt.subplots_adjust(left=0.5)
-    sns.barplot(x="p_value", y="name", data=enrich, color="green")
-    plt.title("Gene Enrichment combined all components")
+    fig, ax = plt.subplots(figsize=(10, 30))
+    fig.subplots_adjust(left=0.5)
+    sns.barplot(x="p_value", y="name", data=enrich, color="green", ax=ax)
+    ax.set_title("Gene Enrichment combined all components")
 
-    if save_path is not None:
-        plt.savefig(save_path + "biological_process_combined.pdf")
-    plt.show()
+    savefig_or_show(fig, default_name="biological_process_combined", show=show, save=save)

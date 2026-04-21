@@ -1,93 +1,86 @@
 import torch
 import numpy as np
 
+from ggml_ot import settings
+import scipy.spatial as sp
 
-def pairwise_mahalanobis_distance(X_i, X_j, w, as_numpy=False):
+
+def pairwise_mahalanobis_distance(X_i, X_j, ground_metric="euclidean", as_numpy=False, squared=False):
     """Compute the Mahalanobis distance between two distributions using w (with torch).
 
     :param X_i: distribution of shape (num_points n, num_features)
     :type X_i: torch.Tensor
     :param X_j: distribution of shape (num_points m, num_features)
     :type X_j: torch.Tensor
-    :param w: weight tensor defining the mahalanobis distance of shape (rank k, num_features)
-    :type w: torch.Tensor
+    :param ground_metric: weight tensor defining the mahalanobis distance of shape (rank k, num_features) or a string defining the metric to use, defaults to "euclidean"
+    :type ground_metric: torch.Tensor | np.ndarray | str, optional
     :return: Mahalanobis distance between X_i and X_j of shape (num_points n, num_points m)
     :rtype: torch.Tensor
     """
-    if isinstance(X_i, np.ndarray):
-        X_i = torch.from_numpy(X_i).to(dtype=torch.float32)
-    if isinstance(X_j, np.ndarray):
-        X_j = torch.from_numpy(X_j).to(dtype=torch.float32)
-    if isinstance(w, np.ndarray):
-        w = torch.from_numpy(w).to(dtype=torch.float32)
+    if isinstance(ground_metric, str) or ground_metric is None:
+        # Fixed ground metrics, cdist from scipy only supports numpy arrays
+        X_i_np = X_i.detach().cpu().numpy() if isinstance(X_i, torch.Tensor) else X_i
+        X_j_np = X_j.detach().cpu().numpy() if isinstance(X_j, torch.Tensor) else X_j
 
-    if w == "euclidean":
-        w = torch.eye(X_i.shape[-1])
+        dists = sp.distance.cdist(X_i_np, X_j_np, metric=ground_metric)
+        if squared:
+            dists = dists**2  # numpy: no autograd, squaring 0 is safe
 
-    # Transform poins of X_i,X_j according to W
-    if w.dim() == 1:
-        # assume cov=0, scale dims by diagonal
-        proj_X_i = X_i * w[None, :]
-        proj_X_j = X_j * w[None, :]
+        if isinstance(X_i, torch.Tensor):
+            # Convert back to tensor if input was tensor
+            return torch.from_numpy(dists).to(device=X_i.device, dtype=torch.float32)
+        return dists
 
-    else:
-        w = torch.transpose(w, 0, 1)
-        proj_X_i = torch.matmul(X_i, w)
-        proj_X_j = torch.matmul(X_j, w)
+    elif isinstance(ground_metric, np.ndarray) or isinstance(ground_metric, torch.Tensor):
+        w = ground_metric
+        # Support numpy inputs
+        device = settings.device
+        if isinstance(X_i, np.ndarray):
+            X_i = torch.from_numpy(X_i).to(dtype=torch.float32, device=device)
+        if isinstance(X_j, np.ndarray):
+            X_j = torch.from_numpy(X_j).to(dtype=torch.float32, device=device)
+        if isinstance(w, np.ndarray):
+            w = torch.from_numpy(w).to(dtype=torch.float32, device=device)
 
-    distances = torch.linalg.norm(proj_X_i[:, torch.newaxis, :] - proj_X_j[torch.newaxis, :, :], dim=-1)
-    if as_numpy:
-        distances = distances.detach().numpy()
+        # Ensure w is on same device as X_i (e.g. if dataset is on CPU but w on GPU)
+        if isinstance(w, torch.Tensor) and w.device != X_i.device:
+            w = w.to(X_i.device)
 
-    return distances
+        if isinstance(w, str) and w == "euclidean":
+            w = torch.eye(X_i.shape[-1], device=X_i.device)
 
+        # Transform poins of X_i,X_j according to W
+        if w.dim() == 1:
+            # assume cov=0, scale dims by diagonal
+            proj_X_i = X_i * w[None, :]
+            proj_X_j = X_j * w[None, :]
 
-# TODO Remove (and only support calculation with torch) or merge into combined function (to leverage multithreading from scipy.spatial.distances)
-'''
-def pairwise_mahalanobis_distance_npy(X_i, X_j=None, w=None, numThreads=32):
-    """Compute the Mahalanobis distance between two distributions X_i and X_j using w which can be a weight tensor
-    or a ground metric. If only X_i is given, the distance is computed between all pairs of X_i.
-
-    :param X_i: distribution of shape (num_points n, num_features)
-    :type X_i: array-like
-    :param X_j: distribution of shape (num_points m, num_features), defaults to None
-    :type X_j: array-like, optional
-    :param w: weight tensor defining the mahalanobis distance of shape (rank k, num_features) or a string defining the metric to use, defaults to None
-    :type w: array-like or str, optional
-    :return: Mahalanobis distance (or distance of given metric) between X_i and X_j or all pairs of X_i of shape (num_points n, num_points m)
-    :rtype: array-like
-    """
-    # if X_j is not provided, compute the distance between all pairs of X_i
-    if X_j is None:
-        # if w is a string, compute the distance using that metric
-        if w is None or isinstance(w, str):
-            return pairwise_distances(X_i, metric=w, n_jobs=numThreads)
-        # else, compute the mahalanobis distance
         else:
-            if w.ndim == 2 and w.shape[0] == w.shape[1]:
-                return pairwise_distances(
-                    X_i, metric="mahalanobis", n_jobs=numThreads, VI=w
-                )
-            else:
-                X_j = X_i
-    # Transform points of X_i,X_j according to W
-    if w is None or isinstance(w, str):
-        return scipy.spatial.distance.cdist(X_i, X_j, metric=w)
-    # Assume w is cov matrix of mahalanobis distance
-    elif w.ndim == 1:
-        # assume cov=0, scale dims by diagonal
-        w = np.diag(w)
-        proj_X_i = np.matmul(X_i, w)
-        proj_X_j = np.matmul(X_j, w)
+            w = torch.transpose(w, 0, 1)
+            proj_X_i = torch.matmul(X_i, w)
+            proj_X_j = torch.matmul(X_j, w)
 
-        # proj_X_i = X_i * w[None,:]
-        # proj_X_j = X_j * w[None,:]
+        diff = proj_X_i[:, None, :] - proj_X_j[None, :, :]
+        if squared:
+            # Compute ||x-y||^2 directly to avoid NaN gradient from sqrt at d=0.
+            distances = (diff**2).sum(-1)
+        else:
+            distances = torch.linalg.norm(diff, dim=-1)
+        if as_numpy:
+            return distances.detach().cpu().numpy()
+
+        return distances
+    elif callable(ground_metric):
+        # Custom ground metric functions, e.g. supports projection function from WDA
+        proj_X_i = ground_metric(X_i)
+        proj_X_j = ground_metric(X_j)
+
+        dists = np.linalg.norm(proj_X_i[:, None, :] - proj_X_j[None, :, :], axis=-1)
+        if squared:
+            dists = dists**2
+        return dists
+
     else:
-        w = np.transpose(w)
-        proj_X_i = np.matmul(X_i, w)
-        proj_X_j = np.matmul(X_j, w)
-
-    return np.linalg.norm(
-        proj_X_i[:, np.newaxis, :] - proj_X_j[np.newaxis, :, :], axis=-1
-    )
-'''
+        raise TypeError(
+            f"ground_metric has unknown type {type(ground_metric)}, only np.ndarray, torch.Tensor and str are supported"
+        )

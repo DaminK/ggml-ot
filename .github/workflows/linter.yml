@@ -1,4 +1,4 @@
-name: Ruff Linter
+name: ruff_linter
 
 on: [push, pull_request]
 
@@ -8,7 +8,7 @@ permissions:
 jobs:
   build:
     name: Check code syntax and style
-    runs-on: tenki-standard-autoscale
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.11"]

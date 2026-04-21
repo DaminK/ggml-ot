@@ -1,0 +1,115 @@
+# GGML-facing test settings.
+#
+# File split intent:
+# - `dataset_params.yml`: dataset construction + source selection + GMM fitting setup.
+# - `ggml_params.yml` (this file): GGML train/test/tune + performance benchmark guard settings.
+#
+# Merge order (3-layer):
+#   defaults.<api>  <-  <profile>.<api>  <-  <profile>.<suite>.<api>  <-  **overrides
+#        L0                  L1                       L2                      L3
+#
+# `get_kwargs(profile, api, suite=, **overrides)` applies this merge.
+# `get_thresholds(suite=)` merges defaults.thresholds <- <profile>.<suite>.thresholds.
+
+# ---------------------------------------------------------------------------
+# Layer 0 – base kwargs per API (display/verbosity defaults).
+# Every profile/suite inherits these automatically.
+# ---------------------------------------------------------------------------
+defaults:
+  train:
+    verbose: false
+    plot_iter: 0
+    return_dataset: false
+  test:
+    verbose: false
+    plot_split: false
+    plot_type: false
+    print_table: false
+  train_test:
+    verbose: false
+    plot_split: false
+    plot_type: false
+    print_table: false
+    plot_iter: 0
+    return_dataset: false
+  tune:
+    verbose: false
+    plot_split: false
+    plot_type: false
+    print_table: false
+    return_dataset: false
+
+  # Global performance degradation thresholds.
+  # Suites override only what differs.
+  thresholds:
+    accuracy_rel_drop_max: 0.05
+    time_rel_increase_max: 0.25
+    time_abs_increase_max_s: 0.2
+
+# ---------------------------------------------------------------------------
+# Layer 1 – smoke profile (lightweight CI tests).
+# Overrides on top of defaults.<api>.
+# ---------------------------------------------------------------------------
+smoke:
+  train:
+    max_iter: 1
+    # entropic_reg: emd2 tests pass 0 as override; sinkhorn tests pass 10.0
+  test:
+    n_splits: 1
+  train_test:
+    max_iter: 1
+    n_splits: 2
+  tune:
+    alpha: [1]
+    reg: 1
+    reg_type: [1, 2]
+    n_comps: 2
+    max_iter: 1
+    n_splits: 1
+
+# ---------------------------------------------------------------------------
+# Layer 1 – perf profile (benchmark / regression tests).
+# Only train_test is supported; requesting another api raises an error.
+# entropic_reg defaults to 10.0 (sinkhorn); emd2 tests override to 0.
+# ---------------------------------------------------------------------------
+perf:
+  train_test:
+    alpha: 1.0
+    reg_type: fro
+    reg: 0.1
+    n_comps: 5
+    n_splits: 2
+    train_size: 0.7
+    batch_size: 128
+    max_iter: 30
+    lr: 0.1
+    time_inference: true
+    entropic_reg: 0.5    # sinkhorn default (fraction of mean cost); emd2 tests override to 0.0
+
+  # Layer 2 – suite-specific overrides.
+  empirical:
+    train_test:
+      max_iter: 20
+
+  gmm:
+    train_test:
+      n_comps: 5
+    # GGML variant kwargs applied as **overrides in the test.
+    variants:
+      none: {}
+      mi_reg:
+        mi_reg: 0.1
+      diag_bures:
+        diag_bures_approx: true
+      diag_bures+mi_reg:
+        diag_bures_approx: true
+        mi_reg: 0.1
+
+  minibatch:
+    train_test:
+      max_iter: 30
+      batch_size: 16
+    #thresholds:
+    #  accuracy_rel_drop_max: 0.10
+    #  time_rel_increase_max: 0.50
+    #  time_abs_increase_max_s: 1.0

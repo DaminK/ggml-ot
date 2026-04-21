@@ -1,0 +1,102 @@
+# Dataset and source-selection settings for tests.
+# Valid dataset-source values and expansion set for `--data-source=all`.
+# Used by:
+# - tests/conftest.py
+# - tests/utils/setup_dataset.py
+# - tests/test_performance.py
+# - tests/test_gmm_performance.py
+# TODO: Change the generic "network" term to something more specific to the actual dataset, e.g. "myocardial_infarction", see scrna_datasets_meta entry below
+data_sources:
+  - synthetic
+  - network
+
+datasets:
+  synthetic:
+    # Used by smoke paths:
+    # - tests/test_AnnData_integration.py (via anndata_datasets fixture)
+    # - tests/test_GGML.py synthetic smoke cases
+    # `n_cells` is the single source of truth and is reused as synth `distribution_size` in setup_dataset.py.
+    smoke:
+      n_cells: 50
+      generator_kwargs:
+        class_means: [5, 10, 15]
+        offsets: [1.5, 4.5, 7.5]
+        noise_dims: 9
+
+    # Used by performance paths:
+    # - tests/test_performance.py synthetic matrix cases
+    # - tests/test_gmm_performance.py synthetic matrix cases (AnnData source)
+    perf:
+      n_cells: 100
+      generator_kwargs:
+        class_means: [5, 10, 15]
+        offsets: [1.5, 4.5, 7.5, 10.5, 13.5, 16.5, 19.5, 22.5, 25.5, 28.5]
+        shared_means_x: [0, 40]
+        shared_means_y: [0, 50]
+        varying_size: false
+        noise_scale: 10
+        noise_dims: 1
+
+  network:
+    # Shared network source used by both smoke/performance profiles.
+    dataset_id: c1f6034b-7973-45e1-85e7-16933d0550bc.h5ad
+    # Used by smoke paths:
+    # - tests/test_AnnData_integration.py with --data-source=network
+    smoke:
+      n_cells: 50
+    # Used by performance paths:
+    # - tests/test_performance.py network matrix cases
+    # - tests/test_gmm_performance.py network matrix cases
+    perf:
+      n_cells: 100
+
+# GMM fitting settings (dataset-side, before GGML train_test).
+# Used by:
+# - tests/utils/setup_dataset.py
+# - tests/test_gmm_performance.py
+gmm_fitting:
+  # Shared across all current GMM perf cases.
+  component_sharing: sample_specific
+  # Representation used to construct the pre-GMM dataset per data source.
+  # Synthetic uses raw X to stay aligned with dev/ggml_gmm_synth.ipynb.
+  use_rep_by_data_source:
+    synthetic: null
+    network: X_pca
+  # Upper cap for per-sample cells prior to GMM fit.
+  max_cells_per_patient: 300
+  # Shared K-candidate presets keyed by data source.
+  k_comps_candidates_by_data_source:
+    synthetic: [2, 3, 4]
+    network: [5, 10]
+  # Forwarded to dataset.fit_gmm(...) in GMM performance tests.
+  fit_gmm_kwargs:
+    k_selection_metric: aic
+    refit: full
+    covariance_type: diag
+    train_size: 0.1
+    max_iter: 100
+# TODO include more scrna datasets into test pipeline
+scrna_datasets_meta:
+  breastcancer:
+    id: "b8b5be07-061b-4390-af0a-f9ced877a068.h5ad"
+    label_col: "reported_diseases"
+    patient_col: "donor_id"
+    cell_subtype_col: "author_cell_type"
+
+  kidney:
+    id: "1c360b0b-eb2f-45a3-aba9-056026b39fa5.h5ad"
+    label_col: "disease"
+    patient_col: "donor_id"
+    cell_subtype_col: "author_cell_type"
+
+  COVID:
+    id: "e6b93598-7ae3-47d6-b971-d3c6d9162175.h5ad"
+    label_col: "disease"
+    patient_col: "donor_id"
+    cell_subtype_col: "author_cell_type"
+
+  myocardial_infarction:
+    id: "c1f6034b-7973-45e1-85e7-16933d0550bc.h5ad"
+    label_col: "patient_group"
+    patient_col: "sample"
+    cell_subtype_col: "final_cluster"

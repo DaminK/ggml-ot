@@ -31,3 +31,4 @@ Gene Enrichment per Loadings/Components
    :toctree: ../generated/
 
    gene.enrichment
+   gene.top_ranked

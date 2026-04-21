@@ -4,11 +4,13 @@ import gprofiler
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from ggml_ot.plot._utils import savefig_or_show
+
 
 def top_ranked(
     adata, components=None, n_genes=None, gene_symbols: str | None = None, up_regulated=False, down_regulated=False
 ):
-    """Returns genes with the highest contributions to each GGML components and
+    """Return genes with the highest contributions to each GGML component.
 
     Parameters
     ----------
@@ -16,13 +18,22 @@ def top_ranked(
         Annotated data matrix.
     components
         For example, ``'1,2,3'`` means ``[1, 2, 3]``, first, second, third
-        principal component. Defaults to all GGML components.
+        GGML component. Defaults to all GGML components.
     n_genes
         Number of genes to rank for each component.
     gene_symbols
         Key for field in `.var` that stores gene symbols if you do not want to
         use `.var_names`.
+    up_regulated
+        If True, rank by positive loadings only.
+    down_regulated
+        If True, rank by negative loadings only. When both flags are equal,
+        absolute loadings are used.
 
+    Returns
+    -------
+    np.ndarray
+        Array of shape ``(n_components, n_genes)`` with gene names.
     """
     if components is None:
         components = np.arange(adata.varm["W_ggml"].shape[-1]) + 1
@@ -50,30 +61,48 @@ def top_ranked(
 
 def enrichment(
     adata,
+    n_genes=50,
     components=None,
-    n_genes=None,
     gene_symbols: str | None = None,
-    ordered=True,
-    up_regulated=False,
-    down_regulated=False,
-    concatenate=False,
+    ordered=False,
     alpha=0.05,
     organism="hsapiens",
     orient="v",
-    save_path=None,
+    save: str | bool | None = None,
+    show: bool | None = None,
+    **kwargs,
 ):
     """Performs enrichment analysis on top-ranked genes and visualizes the enriched biological terms.
 
-    :param top_genes: a list of gene lists where each list contains the top genes for a given component
-    :type top_genes: array-like
-    :param ordered: whether the gene lists are ordered by importance, defaults to True
-    :type ordered: bool, optional
-    :param save_path: path to save plots, defaults to None
-    :type save_path: str, optional
-    :param alpha: threshold for significance in enrichment, defaults to 0.01
-    :type alpha: float, optional
-    :param organism: organism ID for g:Profiler, defaults to "hsapiens"
-    :type organism: str, optional
+    Parameters
+    ----------
+    adata
+        Anndata object
+    n_genes
+        Number of considered top-ranked genes
+    components
+        For example, ``'1,2,3'`` means ``[1, 2, 3]``, first, second, third GGML component. Defaults to all GGML components.
+    gene_symbols
+        Key for field in `.var` that stores gene symbols if you do not want to use `.var_names`.
+    ordered
+        Whether the gene lists are ordered by importance
+    alpha
+        Threshold for significance in enrichment
+    organism
+        Organism ID for g:Profiler
+    orient
+        Whether to layout the plots horizontally (``"h"``) or vertically (``"v"``).
+    show
+        Whether to display the plot.  ``None`` (default) automatically
+        shows in interactive environments (notebooks, IPython) and
+        suppresses in scripts.  ``True``/``False`` override explicitly.
+    save
+        Whether to save the figure to disk.  ``None``/``False`` skip
+        saving.  ``True`` saves under the default name into
+        ``settings.figdir``.  A *str* is used as the filename.
+    kwargs
+        Passed to `sns.barplot`
+
     """
     if components is None:
         components = np.arange(adata.varm["W_ggml"].shape[-1]) + 1
@@ -81,9 +110,7 @@ def enrichment(
         components = [int(x) for x in components.split(",")]
     components = np.array(components) - 1
 
-    top_genes = top_ranked(adata, components, n_genes, gene_symbols, up_regulated, down_regulated)
-    if concatenate:
-        top_genes = np.concatenate(top_genes)
+    top_genes = top_ranked(adata, components, n_genes, gene_symbols)
 
     # Gene Enrichment
     if orient == "h":
@@ -104,25 +131,15 @@ def enrichment(
         )
         enrich["NES"] = -np.log10(enrich["p_value"])
 
-        if up_regulated and not down_regulated:
-            color = "green"
-            title = "Up-regulated"
-        elif down_regulated and not up_regulated:
-            color = "red"
-            title = "Down-regulated"
-        else:
-            color = None
-            title = "Enriched"
-
         if orient == "h":
-            sns.barplot(x="name", y="p_value", data=enrich, ax=axs[c], color=color)
+            sns.barplot(x="name", y="p_value", data=enrich, ax=axs[c], **kwargs)
             axs[c].tick_params(axis="x", rotation=90)
             if c == 0:
                 axs[c].set_ylim(0, alpha * 1.05)
             else:
                 axs[c].get_yaxis().set_visible(False)
         elif orient == "v":
-            sns.barplot(x="p_value", y="name", data=enrich, ax=axs[c], color=color)
+            sns.barplot(x="p_value", y="name", data=enrich, ax=axs[c], **kwargs)
             if c == len(top_genes) - 1:
                 axs[c].set_xlim(0, alpha * 1.05)
             else:
@@ -147,9 +164,7 @@ def enrichment(
 
         axs[c].set_title(f"W_GGML {c + 1}")
 
-    fig.suptitle(f"{title} Processes")
-    plt.tight_layout()
+    fig.suptitle("Enriched Processes")
+    fig.tight_layout()
 
-    if save_path is not None:
-        plt.savefig(save_path + f"{title}_processes_top{n_genes}_{'_combined' if concatenate else ''}.pdf")
-    plt.show()
+    savefig_or_show(fig, default_name=f"enriched_processes_top{n_genes}", show=show, save=save)

@@ -8,19 +8,18 @@ Kühn, Damin, and Michael T. Schaub. "Global Ground Metric Learning with Applica
 ```
 *In BibTeX format:*
 ```bibtex
-@misc{kuehn2025ggml,
-  title={Global Ground Metric Learning with Applications to scRNA data},
-  author={Kühn, Damin and Schaub, Michael T.},
-  booktitle = 	 {Proceedings of the 28th International Conference on Artificial Intelligence and Statistics},
-  pages = 	 {3295--3303},
-  year = 	 {2025},
-  volume = 	 {258},
-  series = 	 {Proceedings of Machine Learning Research},
-  month = 	 {03--05 May},
-  publisher =    {PMLR},
-  pdf = 	 {https://raw.githubusercontent.com/mlresearch/v258/main/assets/kuhn25a/kuhn25a.pdf},
-  url = 	 {https://proceedings.mlr.press/v258/kuhn25a.html},
-}
+  @InProceedings{kuehn2025ggml,
+    title     = {Global Ground Metric Learning with Applications to {scRNA} Data},
+    author    = {K{\"u}hn, Damin and Schaub, Michael T.},
+    booktitle = {Proceedings of the 28th International Conference on Artificial Intelligence and Statistics},
+    pages     = {3295--3303},
+    year      = {2025},
+    volume    = {258},
+    series    = {Proceedings of Machine Learning Research},
+    month     = may,
+    publisher = {PMLR},
+    url       = {https://proceedings.mlr.press/v258/kuhn25a.html}
+    }
 ```
 
 ## Used datasets:

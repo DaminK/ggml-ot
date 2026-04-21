@@ -9,21 +9,28 @@
 
 # Logs
 *.log
+*.out
 
 # Unit test / coverage reports
 .coverage
 .pytest_cache
 
+# pytest coverage reports
+tests/reports/*.xml
+
+# IDEs and Editors
 .DS_Store
 .idea/*
 .python-version
 .vscode/*
 
+# Documentation
 /docs/site/*
 /docs/build/*
 /docs/source/generated/*
 .mypy_cache
 
+# Virtual Environments
 .venv/*
 venv
 poetry.toml
@@ -31,4 +38,20 @@ poetry.lock
 *.h5ad
 .ruff_cache/*
 
-ggml_environment.yml
+# Agent
+.agent/.structurizr/
+.agent/workspace.json
+.agent/plans/archive/
+.agent/plans/outdated/
+.agent/conflict_log.md
+.agent/current_context.md
+
+# Reports / coverage artifacts
+reports/
+
+# External tool artifacts
+.codex
+
+# Development
+dev/*
+notebooks/tutorials

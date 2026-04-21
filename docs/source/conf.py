@@ -1,9 +1,10 @@
 import os
+from importlib.metadata import version as _pkg_version
 
 project = "ggml-ot"
 author = "Damin Kuehn <damin.kuehn@rwth-aachen.de>"
 repository_url = "https://github.com/DaminK/ggml-ot"
-release = "0.9.9"
+release = _pkg_version("ggml-ot")
 
 html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "/")
 html_theme = "scanpydoc"
@@ -41,6 +42,4 @@ autosummary_generate = True
 myst_heading_anchors = 3
 myst_enable_extensions = ["html_image"]
 
-nbsphinx_thumbnails = {
-    "tutorials/ggml_cross_validation": "_images/cross_validation.png",
-}
+nbsphinx_thumbnails = {}

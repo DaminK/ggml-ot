@@ -1,4 +1,4 @@
-from .test import (
+from .evaluation import (
     train_test,
     test,
 )

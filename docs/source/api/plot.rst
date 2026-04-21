@@ -33,3 +33,17 @@ Evaluation
    pl.table
    pl.confusion_matrix
    pl.contour_hyperparams
+
++++++++++++++++++++
+Subspace / GMM
++++++++++++++++++++
+.. autosummary::
+   :nosignatures:
+   :toctree: ../generated/
+
+   pl.scatter_subspace
+   pl.scatter_3d
+   pl.ellipse_overlay
+   pl.panel_subspaces
+   pl.plot_gmm_panel
+   pl.panel_synth_dataset

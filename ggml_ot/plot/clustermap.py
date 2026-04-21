@@ -1,13 +1,125 @@
-### Plot clustermap ###
-import numpy as np
+"""Hierarchically-clustered heatmap with sample annotations."""
 
-import scipy.spatial as sp
-import scipy.cluster.hierarchy as hc
+from __future__ import annotations
+
 import copy
 
+import numpy as np
+import scipy.spatial as sp
+import scipy.cluster.hierarchy as hc
+
 from matplotlib.colors import LogNorm
-import matplotlib.pyplot as plt
 import seaborn as sns
+import torch
+
+from ggml_ot.plot._utils import savefig_or_show
+
+
+def clustermap(
+    distances,
+    labels,
+    *,
+    hier_clustering=True,
+    method="average",
+    title="Clustermap",
+    dist_name="OT Distance",
+    log=False,
+    cmap="Set2",
+    hue_order=None,
+    annotation=False,
+    show: bool | None = None,
+    save: str | bool | None = None,
+    **kwargs,
+):
+    """Plot a hierarchically-clustered heatmap with sample annotations.
+
+    Parameters
+    ----------
+    distances : array-like
+        Distance matrix of shape ``(n_samples, n_samples)``.
+        If a tensor is provided, it will be converted to a numpy array.
+    labels : array-like
+        Class label for each sample (used for row/column colour bar).
+    hier_clustering : bool, default True
+        Whether to perform hierarchical clustering.
+    method : str, default ``"average"``
+        Linkage method passed to :func:`scipy.cluster.hierarchy.linkage`.
+    title : str or None, default ``"Clustermap"``
+        Title displayed above the heatmap.
+    dist_name : str, default ``"OT Distance"``
+        Label for the colour-bar.
+    log : bool, default False
+        Apply logarithmic colour scaling.
+    cmap : str or dict, default ``"Set2"``
+        Colour palette for sample annotations.
+    hue_order : array-like or None, default None
+        Custom ordering of class labels for colour mapping.
+    annotation : bool, default False
+        Display sample labels on the x-axis.
+    show : bool or None, default None
+        Whether to display the plot.  ``None`` (default) automatically
+        shows in interactive environments (notebooks, IPython) and
+        suppresses in scripts.  ``True``/``False`` override explicitly.
+    save : str, bool, or None, default None
+        Whether to save the figure to disk.  ``None``/``False`` skip
+        saving.  ``True`` saves to ``settings.figdir/clustermap.<figformat>``;
+        a *str* overrides the filename.
+    **kwargs
+        Forwarded to :func:`seaborn.clustermap`.
+
+    Returns
+    -------
+    seaborn.matrix.ClusterGrid
+        The cluster-grid object (always returned).
+    """
+    colors = _get_color_mapping(copy.deepcopy(labels), cmap, hue_order)
+
+    # Ensure distances is a numpy array (handle Tensors)
+    if isinstance(distances, torch.Tensor):
+        distances = distances.detach().cpu().numpy()
+    elif not isinstance(distances, np.ndarray):
+        distances = np.asarray(distances)
+
+    distances_copy = copy.deepcopy(distances)
+
+    # Compute hierarchical clustering
+    if hier_clustering:
+        distances_copy[np.eye(len(distances_copy), dtype=bool)] = 0
+        linkage = hc.linkage(
+            sp.distance.squareform(distances_copy),
+            method=method,
+            optimal_ordering=True,
+        )
+    else:
+        linkage = None
+
+    # Log-scale normalisation
+    norm = None
+    if log:
+        norm = LogNorm()
+        distances_copy[distances_copy <= 0] = np.min(distances_copy[distances_copy > 0])
+
+    # Create clustermap
+    grid = _plot_clustermap(
+        distances_copy,
+        colors,
+        linkage,
+        norm,
+        method,
+        title,
+        dist_name,
+        annotation,
+        **kwargs,
+    )
+
+    savefig_or_show(grid, default_name="clustermap", show=show, save=save)
+
+    return grid
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 
 def _get_color_mapping(labels, cmap, hue_order):
@@ -23,9 +135,17 @@ def _get_color_mapping(labels, cmap, hue_order):
 
 
 def _plot_clustermap(
-    distances, colors, linkage, log_norm, method, title, dist_name, annotation, return_figure, **kwargs
+    distances,
+    colors,
+    linkage,
+    log_norm,
+    method,
+    title,
+    dist_name,
+    annotation,
+    **kwargs,
 ):
-    fig = sns.clustermap(
+    grid = sns.clustermap(
         distances,
         figsize=(5, 5),
         row_cluster=linkage is not None,
@@ -45,89 +165,11 @@ def _plot_clustermap(
         **kwargs,
     )
 
-    fig.ax_heatmap.tick_params(right=False, bottom=bool(annotation))
-    fig.ax_col_dendrogram.set_visible(False)
-    fig.ax_cbar.set_title(dist_name, size="small")
+    grid.ax_heatmap.tick_params(right=False, bottom=bool(annotation))
+    grid.ax_col_dendrogram.set_visible(False)
+    grid.ax_cbar.set_title(dist_name, size="small")
 
     if title is not None:
-        if return_figure:
-            fig.ax_heatmap.set_title(title, pad=17)
-        else:
-            fig.figure.suptitle(title)
+        grid.figure.suptitle(title)
 
-    return fig
-
-
-def clustermap(
-    distances,
-    labels,
-    hier_clustering=True,
-    method="average",
-    title="Clustermap",
-    dist_name="OT Distance",
-    log=False,
-    save_path=None,
-    cmap="Set2",
-    hue_order=None,
-    annotation=False,
-    return_figure=False,
-    **kwargs,
-):
-    """Plots hierarchically-clustered heatmap with patient annotations.
-
-    :param dists: distance matrix of shape (n_samples, n_samples)
-    :type dists: array-like
-    :param labels: list of labels of each sample
-    :type labels: array-like
-    :param hier_clustering: whether to perform hierarchical clustering or not, defaults to True
-    :type hier_clustering: bool, optional
-    :param method: linkage method to use for hierarchical clustering, defaults to "average"
-    :type method: str, optional
-    :param title: title of the plot, defaults to None
-    :type title: str, optional
-    :param dist_name: name of the distance measure for the title of the colorbar, defaults to ""
-    :type dist_name: str, optional
-    :param log: whether to apply a logarithmic scaling to the distance matrix, defaults to False
-    :type log: bool, optional
-    :param save_path: file path to save generated plot (not saved if None), defaults to None
-    :type save_path: str, optional
-    :param cmap: color palette for clustermap, defaults to "tab20"
-    :type cmap: str, optional
-    :param hue_order: custom ordering of class labels for color mapping, defaults to None
-    :type hue_order: array-like, optional
-    :param annotation: whether to display sample labels on x-axis, defaults to False
-    :type annotation: bool, optional
-    :return: linkage matrix from hierarchical or None if clustering = True
-    :rtype: numpy.ndarray or None
-    """
-    # creating list of colors for conds
-    colors = _get_color_mapping(copy.deepcopy(labels), cmap, hue_order)
-
-    distances_copy = copy.deepcopy(distances)
-    # TODO figure out why the original distance and/or label are changed as a side effect in this function
-
-    # compute hierarchical clustering if cluster == True
-    if hier_clustering:
-        distances_copy[np.eye(len(distances_copy), dtype=bool)] = 0
-        linkage = hc.linkage(sp.distance.squareform(distances_copy), method=method, optimal_ordering=True)
-    else:
-        linkage = None
-
-    # apply log scaling if log = True (useful when data spans a broad range of values)
-    norm = None
-    if log:
-        norm = LogNorm()
-        distances_copy[distances_copy <= 0] = np.min(distances_copy[distances_copy > 0])
-
-    # create clustermap
-    fig = _plot_clustermap(distances_copy, colors, linkage, norm, method, title, dist_name, annotation, return_figure)
-
-    # save plot if desired
-    if save_path is not None:
-        fig.figure.savefig(save_path)
-
-    if not return_figure:
-        plt.show()
-        return linkage
-    else:
-        return fig
+    return grid

@@ -1,0 +1,85 @@
+name: Run pytest reports
+description: Run one pytest tier and generate browsable CI report artifacts.
+
+inputs:
+  python-version:
+    description: Python version label used in report filenames.
+    required: true
+  test-id:
+    description: Short test tier id, for example mandatory or perf.
+    required: true
+  marker:
+    description: Pytest marker expression.
+    required: true
+  threads:
+    description: Value passed to --threads.
+    required: true
+  data-source:
+    description: Value passed to --data-source.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run pytest and generate reports
+      shell: bash
+      run: |
+        mkdir -p reports/junit reports/pytest reports/coverage reports/performance
+        pytest_exit=0
+        coverage_args=()
+        # Only the mandatory tier emits coverage to keep perf timings cleaner.
+        if [ "${{ inputs.test-id }}" = "mandatory" ]; then
+          coverage_args+=(
+            --cov=ggml_ot
+            --cov-branch
+            --cov-config=pyproject.toml
+            --cov-report=term-missing:skip-covered
+            --cov-report=xml:reports/coverage/coverage-${{ inputs.python-version }}-${{ inputs.test-id }}.xml
+            --cov-report=html:reports/coverage
+          )
+        fi
+
+        poetry run python -m pytest \
+          --threads "${{ inputs.threads }}" \
+          --data-source="${{ inputs.data-source }}" \
+          -m "${{ inputs.marker }}" \
+          --verbose -vv \
+          --junitxml="reports/junit/test-results-${{ inputs.python-version }}-${{ inputs.test-id }}.xml" \
+          --html="reports/pytest/report-${{ inputs.python-version }}-${{ inputs.test-id }}.html" \
+          --self-contained-html \
+          "${coverage_args[@]}" || pytest_exit=$?
+        # Persist the exit code so later artifact-generation steps can still run.
+        echo "${pytest_exit}" > reports/.pytest-exit-code
+
+    - name: Render performance overview
+      if: ${{ inputs.test-id == 'perf' }}
+      shell: bash
+      run: |
+        poetry run python -m tests.utils.performance_snapshot --write-overview --write-overview-html
+        cp tests/data/performance_snapshots/performance_overview.md reports/performance/
+        cp tests/data/performance_snapshots/performance_overview.html reports/performance/
+
+    - name: Summarize generated reports
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        {
+          echo "### Generated reports"
+          echo "- Pytest HTML: \`reports/pytest/report-${{ inputs.python-version }}-${{ inputs.test-id }}.html\`"
+          echo "- JUnit XML: \`reports/junit/test-results-${{ inputs.python-version }}-${{ inputs.test-id }}.xml\`"
+          if [ -f reports/coverage/index.html ]; then
+            echo "- Coverage HTML: \`reports/coverage/index.html\`"
+            echo "- Coverage XML: \`reports/coverage/coverage-${{ inputs.python-version }}-${{ inputs.test-id }}.xml\`"
+          fi
+          if [ -f reports/performance/performance_overview.html ]; then
+            echo "- Performance overview HTML: \`reports/performance/performance_overview.html\`"
+            echo "- Performance overview Markdown: \`reports/performance/performance_overview.md\`"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Finalize pytest outcome
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        # Fail the composite action only after reports and summaries are written.
+        exit "$(cat reports/.pytest-exit-code)"

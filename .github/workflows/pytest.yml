@@ -1,28 +1,94 @@
 name: pytests
 
-on: [push, pull_request]
+on: [push]
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Python tests
-    runs-on: tenki-standard-autoscale
+  tests:
+    name: Python ${{ matrix.python-version }} - ${{ matrix.test.label }}
+    runs-on: ubuntu-22.04
+    env:
+      PIP_NO_CACHE_DIR: "1"
+      POETRY_CACHE_DIR: /tmp/pypoetry-cache
     strategy:
-      matrix: # Python versions to test against
-        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+        test:
+          # Mandatory keeps CI gating strict and carries the coverage artifact.
+          - id: mandatory
+            label: "mandatory"
+            marker: "not perf and not dev"
+            threads: 1
+            data_source: "synthetic"
+            raises: "error"
+          # not included until we have a better strategy for handling network tests in CI, e.g. by caching the data or using a smaller subset
+          #- id: network
+          #  label: "real-world data (uses network)"
+          #  marker: "anndata and not perf and not dev"
+          #  threads: 1
+          #  data_source: "network"
+          #  raises: "warning"
+          # Perf is informative for now, so we keep artifacts even on regressions.
+          - id: perf
+            label: "performance degradation"
+            marker: "perf"
+            threads: 4
+            data_source: "synthetic"
+            raises: "warning"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo apt-get clean
+          df -h
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install poetry
-          poetry install --with test
-      - name: run tests
+          pip install --no-cache-dir poetry
+          poetry install --with test --no-ansi
+
+      # Keep the workflow focused on orchestration. The local composite action
+      # owns pytest flag assembly plus HTML/XML artifact generation.
+      - name: Run tests and generate reports (${{ matrix.test.label }})
+        id: run_tests
+        continue-on-error: ${{ matrix.test.raises == 'warning' }}
+        uses: ./.github/actions/run-pytest-reports
+        with:
+          python-version: ${{ matrix.python-version }}
+          test-id: ${{ matrix.test.id }}
+          marker: ${{ matrix.test.marker }}
+          threads: ${{ matrix.test.threads }}
+          data-source: ${{ matrix.test.data_source }}
+
+      - name: Handle optional test failure
+        if: steps.run_tests.outcome == 'failure'
         run: |
-          poetry run python -W "ignore::DeprecationWarning" -m pytest --junitxml=junit/test-results-${{ matrix.python-version }}.xml
+          echo "::warning title=Test Failure::Tests (${{ matrix.test.label }}) failed. This is an allowed failure for this tier."
+
+      - name: Clean install caches
+        if: ${{ always() }}
+        run: |
+          rm -rf /tmp/pypoetry-cache || true
+          rm -rf ~/.cache/pip || true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          # Each matrix job uploads one browsable report bundle.
+          name: pytest-reports-${{ matrix.python-version }}-${{ matrix.test.id }}
+          path: reports/
+          if-no-files-found: warn
+        if: ${{ always() }}

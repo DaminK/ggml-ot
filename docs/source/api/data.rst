@@ -42,3 +42,4 @@ Generate synthetic data
    :toctree: ../generated/
 
    data.from_synth
+   data.from_synth_gmm
