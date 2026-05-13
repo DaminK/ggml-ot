@@ -144,6 +144,7 @@ def _save_train_test_split_plots(
     n_splits: int,
     plot_split_dir: str | Path | None,
     plot_title: str | None,
+    cluster_linkage: str = "complete",
 ) -> None:
     """Render and optionally save benchmark split plots.
 
@@ -188,7 +189,14 @@ def _save_train_test_split_plots(
             show = False if split_dir is not None else None
 
             if plot_type == "clustermap":
-                grid = clustermap(distances, labels, title=resolved_title, show=show, save=save_name)
+                grid = clustermap(
+                    distances,
+                    labels,
+                    linkage=cluster_linkage,
+                    title=resolved_title,
+                    show=show,
+                    save=save_name,
+                )
                 if split_dir is not None:
                     plt.close(grid.figure)
             elif plot_type == "embedding":
@@ -208,6 +216,7 @@ def _save_train_test_split_plots(
                     distances,
                     labels,
                     symbols=symbols,
+                    linkage=cluster_linkage,
                     title=resolved_title,
                     show=show,
                     save=save_name,

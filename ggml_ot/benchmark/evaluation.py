@@ -23,6 +23,7 @@ def train_test(
     test_size: float | None = None,
     scoring: tuple[str, ...] | list[str] = ("knn", "ari"),
     knn_k: int = 5,
+    cluster_linkage: str = "complete",
     plot_split: bool = True,
     plot_type: Literal["clustermap_embedding", "clustermap", "embedding"] | list[str] | tuple[str, ...] | bool = True,
     print_table: bool = True,
@@ -59,6 +60,11 @@ def train_test(
         are clustering scores obtained via hierarchical clustering.
     knn_k
         Number of neighbors used for benchmark k-NN classification.
+    cluster_linkage
+        Linkage method used by hierarchical clustering for clustering scores
+        and clustermap plots. Defaults to ``"complete"``, the canonical choice
+        for disease subtyping; produces more balanced cuts than ``"average"``
+        and avoids singleton outlier clusters that can destabilize ARI.
     plot_split
         Whether to plot OT distances for each split
     plot_type
@@ -135,6 +141,7 @@ def train_test(
                 split_idx=i,
                 n_splits=n_splits,
                 knn_k=knn_k,
+                cluster_linkage=cluster_linkage,
                 plot_split_dir=plot_split_dir,
                 plot_title=plot_title,
                 **kwargs,
@@ -242,6 +249,7 @@ def _test(
     split_idx=0,
     n_splits=1,
     knn_k=5,
+    cluster_linkage="complete",
     plot_split_dir=None,
     plot_title=None,
     **kwargs,
@@ -281,6 +289,7 @@ def _test(
             plot_split_dir=plot_split_dir,
             plot_title=plot_title,
             ground_metric=map_A,
+            cluster_linkage=cluster_linkage,
         )
 
     scores = {}
@@ -298,13 +307,16 @@ def _test(
 
     # Clustering
     if {"mi", "ari", "vi"} & set(scoring):
-        _cluster_scores = hierarchical_clustering(ot_distances, train_test_set.distribution_labels)
+        _cluster_scores = hierarchical_clustering(
+            ot_distances, train_test_set.distribution_labels, linkage=cluster_linkage
+        )
         scores.update({k: _cluster_scores[k] for k in _cluster_scores if k in scoring})
 
-    # Inference time per pairwise distance
+    # Inference time: total full OT computation and per computed off-diagonal pair.
     if time_inference:
-        scores["inf_time(ms)"] = (
-            1000 * total_time / ((len(train_index) + len(test_index)) * (len(train_index) + len(test_index) + 1) / 2)
-        )
+        n_distributions = len(train_index) + len(test_index)
+        n_pairs = n_distributions * (n_distributions - 1) / 2
+        scores["full_ot_time(s)"] = total_time
+        scores["inf_time(ms)"] = 1000 * total_time / n_pairs
 
     return scores

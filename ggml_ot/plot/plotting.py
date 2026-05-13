@@ -32,6 +32,7 @@ def clustermap_embedding(
     *,
     plot="clustermap_embedding",
     title=None,
+    linkage="complete",
     show: bool | None = None,
     save: str | bool | None = None,
     **kwargs,
@@ -76,7 +77,7 @@ def clustermap_embedding(
     fig = None
 
     if plot in {"clustermap", "clustermap_embedding"}:
-        g = clustermap(distances, labels, show=False, save=False)
+        g = clustermap(distances, labels, linkage=linkage, show=False, save=False)
 
         if plot == "clustermap_embedding":
             g.gs.update(left=0.05, right=0.55)

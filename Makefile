@@ -1,4 +1,4 @@
-.PHONY: help test perf coverage lint docs docs-fast clean
+.PHONY: help test test-perf test-all coverage lint format docs docs-strict docs-with-nbsphinx clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -10,7 +10,7 @@ help:  ## Show this help
 test:  ## Run default test suite (excludes perf and dev)
 	poetry run pytest
 
-perf:  ## Run performance benchmarks
+test-perf:  ## Run performance benchmarks
 	poetry run pytest -m perf --data-source "all" --update-baseline
 
 test-all:  ## Run all tests including perf and dev
@@ -37,15 +37,14 @@ format:  ## Auto-format with ruff
 # Documentation
 # ---------------------------------------------------------------------------
 
-docs:  ## Build Sphinx docs (HTML, skips notebook execution)
+docs:  ## Build Sphinx docs
 	MPLCONFIGDIR=/tmp/mplconfig poetry run sphinx-build -b html -D nbsphinx_execute=never docs/source docs/build/html
-
-docs-full:  ## Build Sphinx docs with notebook execution
-	MPLCONFIGDIR=/tmp/mplconfig poetry run sphinx-build -b html docs/source docs/build/html
 
 docs-strict:  ## Build Sphinx docs with -W (warnings as errors)
 	MPLCONFIGDIR=/tmp/mplconfig poetry run sphinx-build -b html -W -D nbsphinx_execute=never docs/source docs/build/html
 
+docs-with-nbsphinx:  ## Build Sphinx docs with notebook execution
+	MPLCONFIGDIR=/tmp/mplconfig poetry run sphinx-build -b html docs/source docs/build/html
 # ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------

@@ -54,14 +54,14 @@ For integration tutorials, include:
 - A minimal reproducible example that users can run end-to-end.
 - Notes on limitations, version assumptions, or optional dependencies.
 
-To ensure docs build correctly, install docs dependencies and build locally:
+To ensure docs build correctly, install docs dependencies and run the strict docs build:
 
 ```bash
 poetry install --with docs
-python -m sphinx -T -W --keep-going -b html -d docs/build/doctrees docs/source docs/build
+make docs-strict
 ```
 
-The flags `-T -W --keep-going` give complete, strict diagnostics.
+`make docs-strict` runs `sphinx-build -W` which treats Sphinx warnings as errors, while `make docs` ignores warnings. To re-execute all tutorial notebooks during the build, you can use `make docs-with-nbsphinx`  (very slow, only for major changes).
 
 For a quick local preview while editing, serve the built docs:
 

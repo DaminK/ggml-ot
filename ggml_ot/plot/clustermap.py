@@ -20,7 +20,7 @@ def clustermap(
     labels,
     *,
     hier_clustering=True,
-    method="average",
+    linkage="complete",
     title="Clustermap",
     dist_name="OT Distance",
     log=False,
@@ -42,7 +42,7 @@ def clustermap(
         Class label for each sample (used for row/column colour bar).
     hier_clustering : bool, default True
         Whether to perform hierarchical clustering.
-    method : str, default ``"average"``
+    linkage : str, default ``"complete"``
         Linkage method passed to :func:`scipy.cluster.hierarchy.linkage`.
     title : str or None, default ``"Clustermap"``
         Title displayed above the heatmap.
@@ -85,13 +85,13 @@ def clustermap(
     # Compute hierarchical clustering
     if hier_clustering:
         distances_copy[np.eye(len(distances_copy), dtype=bool)] = 0
-        linkage = hc.linkage(
+        Z = hc.linkage(
             sp.distance.squareform(distances_copy),
-            method=method,
+            method=linkage,
             optimal_ordering=True,
         )
     else:
-        linkage = None
+        Z = None
 
     # Log-scale normalisation
     norm = None
@@ -103,9 +103,9 @@ def clustermap(
     grid = _plot_clustermap(
         distances_copy,
         colors,
-        linkage,
+        Z,
         norm,
-        method,
+        linkage,
         title,
         dist_name,
         annotation,
@@ -137,9 +137,9 @@ def _get_color_mapping(labels, cmap, hue_order):
 def _plot_clustermap(
     distances,
     colors,
-    linkage,
+    Z,
     log_norm,
-    method,
+    linkage,
     title,
     dist_name,
     annotation,
@@ -148,14 +148,14 @@ def _plot_clustermap(
     grid = sns.clustermap(
         distances,
         figsize=(5, 5),
-        row_cluster=linkage is not None,
-        col_cluster=linkage is not None,
-        row_linkage=linkage,
-        col_linkage=linkage,
+        row_cluster=Z is not None,
+        col_cluster=Z is not None,
+        row_linkage=Z,
+        col_linkage=Z,
         dendrogram_ratio=0.15,
         row_colors=colors,
         col_colors=colors,
-        method=method,
+        method=linkage,
         cmap=sns.cm.rocket_r,
         cbar_pos=(0.05, 0.1, 0.1, 0.02),
         cbar_kws={"orientation": "horizontal"},

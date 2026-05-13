@@ -61,18 +61,22 @@ make docs
 
 Common tasks are available as `make` targets. Run `make help` to list them:
 
-| Target         | Description                                       |
-|----------------|---------------------------------------------------|
-| `make test`    | Run default test suite (excludes perf and dev)    |
-| `make perf`    | Run performance benchmarks                        |
-| `make test-all`| Run all tests including perf and dev markers      |
-| `make coverage`| Run tests with coverage report (terminal + HTML)  |
-| `make lint`    | Run ruff linter                                   |
-| `make format`  | Auto-format with ruff                             |
-| `make docs`    | Build Sphinx docs (skips notebook execution)      |
-| `make docs-full`| Build Sphinx docs with notebook execution        |
-| `make docs-strict`| Build Sphinx docs with warnings as errors      |
-| `make clean`   | Remove build artifacts and caches                 |
+| Target | Description | Command |
+|--------|-------------|---------|
+| `make test` | Run default test suite | `poetry run pytest` |
+| `make test-perf` | Run performance benchmarks | `poetry run pytest -m perf --data-source "all" --update-baseline` |
+| `make test-all` | Run all tests including `perf` and `dev` markers | `poetry run pytest -m "" --override-ini="addopts="` |
+| `make coverage` | Run tests with coverage report | `poetry run pytest --cov=ggml_ot --cov-report=term-missing --cov-report=html` |
+| `make lint` | Run ruff linter | `poetry run ruff check --config pyproject.toml` |
+| `make format` | Auto-format with ruff | `poetry run ruff format --config pyproject.toml` |
+| `make docs` | Build Sphinx docs, skipping notebook execution | `MPLCONFIGDIR=/tmp/mplconfig poetry run sphinx-build -b html -D nbsphinx_execute=never docs/source docs/build/html` |
+| `make docs-with-nbsphinx` | Build Sphinx docs with notebook execution | `MPLCONFIGDIR=/tmp/mplconfig poetry run sphinx-build -b html docs/source docs/build/html` |
+| `make docs-strict` | Build Sphinx docs with warnings as errors | `MPLCONFIGDIR=/tmp/mplconfig poetry run sphinx-build -b html -W -D nbsphinx_execute=never docs/source docs/build/html` |
+| `make clean` | Remove build artifacts and caches | `rm -rf docs/build htmlcov reports .coverage .pytest_cache` |
+
+For small changes, `make test` is usually sufficient. For major changes,
+especially changes to the model or optimization code, also run `make test-perf`
+to check for performance degradation across the benchmark setups.
 
 ### Environment notes
 

@@ -1,6 +1,6 @@
 [project]
 name = "ggml-ot"
-version = "0.9.91"
+version = "0.9.92"
 description = "Supervised OT with Global Ground Metric Learning"
 authors = [{ name = "Damin Kuehn", email = "kuehn@cs.rwth-aachen.de" }]
 readme = "README.md"
@@ -48,7 +48,7 @@ Issues = "https://github.com/DaminK/ggml-ot/issues"
 [tool.poetry]
 # Keeping metadata here for compatibility with older tools
 name = "ggml-ot"
-version = "0.9.91"
+version = "0.9.92"
 description = "Supervised OT with Global Ground Metric Learning"
 authors = ["Damin Kuehn <kuehn@cs.rwth-aachen.de>"]
 packages = [{include = "ggml_ot"}]

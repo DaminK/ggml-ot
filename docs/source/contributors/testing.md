@@ -22,8 +22,14 @@ We use [pytest](https://docs.pytest.org/en/stable/) for automated tests.
 Run the full suite locally:
 
 ```bash
-poetry run pytest
+make test
 ```
+
+This runs `poetry run pytest`.
+
+For small changes, `make test` is usually sufficient. For major changes,
+especially changes to the model or optimization code, also run `make test-perf`
+to check for performance degradation across the benchmark setups.
 
 Run with detailed output and warning handling:
 
@@ -31,14 +37,15 @@ Run with detailed output and warning handling:
 poetry run python -W "ignore::DeprecationWarning:ot.*" -m pytest
 ```
 
-Generate local HTML reports for test results and coverage:
+Generate a local coverage report:
 
 ```bash
-poetry run pytest --cov=ggml_ot --cov-branch --cov-report=term-missing:skip-covered --cov-report=html --html=pytest-report.html --self-contained-html
+make coverage
 ```
 
-This writes a self-contained pytest report to `pytest-report.html` and the
-coverage site to `htmlcov/index.html`.
+This runs `poetry run pytest --cov=ggml_ot --cov-report=term-missing
+--cov-report=html` and writes the coverage site to `htmlcov/index.html`. Use a
+direct `poetry run pytest ...` command if you need extra report formats.
 
 ## Network vs synthetic data tests
 
@@ -63,14 +70,10 @@ Performance benchmarks are marked `perf` and excluded by default.
 Run benchmarks:
 
 ```bash
-poetry run pytest -m "perf"
+make test-perf
 ```
 
-Update baselines:
-
-```bash
-poetry run pytest -m "perf" --update-baseline
-```
+This runs `poetry run pytest -m perf --data-source "all" --update-baseline`.
 
 Render the current performance overview as HTML:
 

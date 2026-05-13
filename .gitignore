@@ -39,12 +39,7 @@ poetry.lock
 .ruff_cache/*
 
 # Agent
-.agent/.structurizr/
-.agent/workspace.json
-.agent/plans/archive/
-.agent/plans/outdated/
-.agent/conflict_log.md
-.agent/current_context.md
+.agent/
 
 # Reports / coverage artifacts
 reports/

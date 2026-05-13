@@ -14,14 +14,34 @@ import warnings
 warnings.simplefilter("ignore", category=FutureWarning)
 
 
-def hierarchical_clustering(ot_distances, labels, n_cluster=None):
+def hierarchical_clustering(ot_distances, labels, n_cluster=None, linkage="complete"):
+    """Cluster a precomputed distance matrix and score against ground-truth labels.
+
+    Uses agglomerative hierarchical clustering, cut at ``n_cluster`` clusters.
+    Defaults to ``linkage="complete"`` (canonical for disease subtyping), which
+    produces more balanced cuts than ``"average"`` and avoids the singleton
+    outlier clusters that destabilize ARI.
+
+    :param ot_distances: precomputed distance matrix of shape (n_samples, n_samples)
+    :type ot_distances: array-like
+    :param labels: ground-truth labels of shape (n_samples,)
+    :type labels: array-like
+    :param n_cluster: target number of clusters. Defaults to ``len(unique(labels))``.
+    :type n_cluster: int or None
+    :param linkage: linkage method passed to :class:`sklearn.cluster.AgglomerativeClustering`
+        (e.g. ``"complete"``, ``"average"``, ``"single"``).
+    :type linkage: str
+    :return: dict with keys ``"mi"`` (normalized MI), ``"ari"`` (adjusted Rand index),
+        and ``"vi"`` (variation of information).
+    :rtype: dict
+    """
     if n_cluster is None:
         n_cluster = len(np.unique(labels))
 
     clustering = AgglomerativeClustering(
         n_clusters=n_cluster,
         metric="precomputed",
-        linkage="average",
+        linkage=linkage,
     )
     pred_cluster = clustering.fit_predict(ot_distances)
 
