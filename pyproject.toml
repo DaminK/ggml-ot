@@ -1,6 +1,6 @@
 [project]
 name = "ggml-ot"
-version = "0.9.92"
+version = "0.9.93"
 description = "Supervised OT with Global Ground Metric Learning"
 authors = [{ name = "Damin Kuehn", email = "kuehn@cs.rwth-aachen.de" }]
 readme = "README.md"
@@ -34,7 +34,7 @@ dependencies = [
     "scanpy>=1.10.0,<2.0.0",       # Relaxed
     "scikit-learn>=1.4.0,<2.0.0",
     "requests>=2.31.0,<3.0.0",
-    "ipython>=8.18.0,<10.0.0",     # Supports 8.18+ (for 3.10) and 9.x (for 3.11+)
+    "ipython>=7.34.0,<10.0.0",     # Supports Google Colab preinstalled IPython and 9.x
     "gprofiler-official>=1.0.0,<2.0.0",
     "decoupler>=2.1,<3",
     "igraph>=0.11.0,<1.0.0",
@@ -48,7 +48,7 @@ Issues = "https://github.com/DaminK/ggml-ot/issues"
 [tool.poetry]
 # Keeping metadata here for compatibility with older tools
 name = "ggml-ot"
-version = "0.9.92"
+version = "0.9.93"
 description = "Supervised OT with Global Ground Metric Learning"
 authors = ["Damin Kuehn <kuehn@cs.rwth-aachen.de>"]
 packages = [{include = "ggml_ot"}]
