@@ -59,10 +59,14 @@ _D = np.array(
 _LABELS = ["a", "a", "b", "b"]
 
 
-def test_clustermap_embedding_smoke():
-    """Clustermap/embedding entrypoint should run without raising."""
-    ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="embedding", method="mds", show=False)
-    ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="clustermap", show=False)
+def test_clustermap_embedding_returns_open_figures_when_not_shown():
+    embedding_fig = ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="embedding", method="mds", show=False)
+    clustermap_fig = ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="clustermap", show=False)
+
+    assert plt.fignum_exists(embedding_fig.number)
+    assert plt.fignum_exists(clustermap_fig.number)
+    plt.close(embedding_fig)
+    plt.close(clustermap_fig)
 
 
 @pytest.mark.parametrize(
@@ -81,21 +85,6 @@ def test_plot_save(figdir, plot_name, expected_prefix):
 
     files = list(figdir.iterdir())
     assert any(f.name.startswith(expected_prefix) for f in files), f"Expected {expected_prefix} file in {files}"
-
-
-# -------------------------------------------------------------------
-# Distribution
-# -------------------------------------------------------------------
-
-
-def test_distribution_plot_smoke():
-    """Distribution plotting entrypoint should run without raising."""
-    rng = np.random.default_rng(0)
-    distributions = [rng.normal(size=(20, 3)).astype(np.float32) for _ in range(6)]
-    labels = [0, 0, 0, 1, 1, 1]
-
-    ax = ggml_ot.pl.distribution(distributions=distributions, labels=labels, dim_red="pca", legend=False, show=False)
-    assert ax is not None
 
 
 # -------------------------------------------------------------------
@@ -131,6 +120,17 @@ def test_embedding_return_embedding():
     ax, emb = result
     assert hasattr(ax, "set_title")
     assert emb.shape == (4, 2)
+    assert plt.fignum_exists(ax.figure.number)
+    plt.close(ax.figure)
+
+
+def test_plots_return_none_when_shown():
+    precomputed_emb = np.column_stack((np.arange(len(_LABELS)), np.zeros(len(_LABELS))))
+
+    assert ggml_ot.pl.embedding(_D, _LABELS, precomputed_emb=precomputed_emb, show=True) is None
+    assert ggml_ot.pl.clustermap(_D, _LABELS, show=True) is None
+    assert ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="clustermap", show=True) is None
+    plt.close("all")
 
 
 # -------------------------------------------------------------------

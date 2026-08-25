@@ -334,11 +334,11 @@ class TripletDataset(Dataset):
         legend="Side",
         plot_type: str | bool = "clustermap_embedding",
         symbols=None,
-        measure_time=False,
+        measure_time: bool = False,
         show: bool | None = None,
         save: str | bool | None = None,
         **kwargs,
-    ):
+    ) -> torch.Tensor | tuple[torch.Tensor, float]:
         """Compute the Optimal Transport distances between all distributions.
 
         :param precomputed_distances: optional matrix of precomputed distances for computing the OT, defaults to None
@@ -356,6 +356,9 @@ class TripletDataset(Dataset):
             One of ``"clustermap_embedding"`` (default), ``"clustermap"``,
             ``"embedding"``, or ``False`` to skip plotting entirely.
         :type plot_type: str or bool, optional
+        :param measure_time: Whether to include the elapsed OT computation time
+            in the return value, defaults to False.
+        :type measure_time: bool, optional
         :param show: Whether to display the plot.  ``None`` (default) automatically
             shows in interactive environments (notebooks, IPython) and
             suppresses in scripts.  ``True``/``False`` override explicitly.
@@ -364,8 +367,9 @@ class TripletDataset(Dataset):
             saving.  ``True`` saves under the default name into
             ``settings.figdir``.  A *str* is used as the filename.
         :type save: str, bool, or None, optional
-        :return: pairwise OT distance matrix
-        :rtype: numpy.ndarray
+        :return: Pairwise OT distance matrix, or ``(distances, elapsed_seconds)``
+            when ``measure_time=True``.
+        :rtype: torch.Tensor or tuple[torch.Tensor, float]
         """
         if "save_path" in kwargs:
             raise TypeError("`save_path` has been removed. Use `save=` and configure `ggml_ot.settings.figdir`.")

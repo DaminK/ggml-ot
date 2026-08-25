@@ -502,7 +502,7 @@ def scatter_subspace(
     legend: bool = True,
     show: bool | None = None,
     save: str | bool | None = None,
-) -> mpl.axes.Axes:
+) -> mpl.axes.Axes | None:
     """2-D scatter plot of points in a subspace.
 
     Works with any point cloud: raw observations, AnnData-backed data,
@@ -540,7 +540,8 @@ def scatter_subspace(
 
     Returns
     -------
-    matplotlib.axes.Axes
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
     """
     X_2d = _resolve_projection(X, projection, components)
 
@@ -588,8 +589,8 @@ def scatter_subspace(
         ]
         ax.legend(handles=handles, loc="best", fontsize=8, framealpha=0.95)
 
-    savefig_or_show(ax, default_name="scatter_subspace", show=show, save=save)
-    return ax
+    shown = savefig_or_show(ax, default_name="scatter_subspace", show=show, save=save)
+    return None if shown else ax
 
 
 def scatter_3d(
@@ -611,7 +612,7 @@ def scatter_3d(
     legend: bool = True,
     show: bool | None = None,
     save: str | bool | None = None,
-) -> mpl.axes.Axes:
+) -> mpl.axes.Axes | None:
     """3-D scatter plot.
 
     Parameters
@@ -641,7 +642,8 @@ def scatter_3d(
 
     Returns
     -------
-    matplotlib.axes.Axes
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
     """
     c0, c1, c2 = components
     pts = X[:, [c0, c1, c2]]
@@ -693,8 +695,8 @@ def scatter_3d(
         ]
         ax.legend(handles=handles, loc="lower right", fontsize=8, ncol=2)
 
-    savefig_or_show(ax, default_name="scatter_3d", show=show, save=save)
-    return ax
+    shown = savefig_or_show(ax, default_name="scatter_3d", show=show, save=save)
+    return None if shown else ax
 
 
 # =========================================================================
@@ -718,7 +720,7 @@ def panel_subspaces(
     azim: float = 130,
     show: bool | None = None,
     save: str | bool | None = None,
-) -> mpl.figure.Figure:
+) -> mpl.figure.Figure | None:
     """Three-panel figure: mixed 3-D | rotated 2-D | clean 2-D (or learned).
 
     Accepts either the raw ``data`` dict from :func:`synth_gmm` or an
@@ -756,7 +758,8 @@ def panel_subspaces(
 
     Returns
     -------
-    matplotlib.figure.Figure
+    matplotlib.figure.Figure or None
+        The figure if the plot is not shown; otherwise ``None``.
     """
     # ------------------------------------------------------------------
     # Extract arrays from data dict or AnnData
@@ -1013,7 +1016,7 @@ def plot_gmm_panel(
     ylabel: str | None = None,
     show: bool | None = None,
     save: str | bool | None = None,
-) -> mpl.axes.Axes:
+) -> mpl.axes.Axes | None:
     """2-D scatter with optional GMM ellipse overlay.
 
     Combines :func:`scatter_subspace`, :func:`_project_gmm`, and
@@ -1060,7 +1063,8 @@ def plot_gmm_panel(
 
     Returns
     -------
-    matplotlib.axes.Axes
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=figsize)
@@ -1114,8 +1118,8 @@ def plot_gmm_panel(
     ax.set_xticks([])
     ax.set_yticks([])
 
-    savefig_or_show(ax, default_name="plot_gmm_panel", show=show, save=save)
-    return ax
+    shown = savefig_or_show(ax, default_name="plot_gmm_panel", show=show, save=save)
+    return None if shown else ax
 
 
 def latent_gmm(
@@ -1140,8 +1144,14 @@ def latent_gmm(
     figsize: tuple[float, float] = (6, 5.5),
     show: bool | None = None,
     save: str | bool | None = None,
-) -> mpl.axes.Axes:
-    """Plot fitted GMM components in the learned GGML latent space."""
+) -> mpl.axes.Axes | None:
+    """Plot fitted GMM components in the learned GGML latent space.
+
+    Returns
+    -------
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
+    """
     if component_view not in {"raw", "grouped"}:
         raise ValueError("component_view must be 'raw' or 'grouped'.")
     if group_display not in {"all", "highlight", "only"}:
@@ -1286,8 +1296,8 @@ def latent_gmm(
     if title is not None:
         ax.set_title(title)
 
-    savefig_or_show(ax, default_name="latent_gmm", show=show, save=save)
-    return ax
+    shown = savefig_or_show(ax, default_name="latent_gmm", show=show, save=save)
+    return None if shown else ax
 
 
 def _resolve_latent_gmm_input(data, gmm_key: str | None) -> tuple:
@@ -1591,7 +1601,7 @@ def panel_synth_dataset(
     point_alpha_background: float = 0.05,
     show: bool | None = None,
     save: str | bool | None = None,
-) -> mpl.figure.Figure:
+) -> mpl.figure.Figure | None:
     """Multi-panel figure for a synthetic-GMM ``TripletDataset``.
 
     Reads generation metadata from ``dataset.synth_data`` (set when the
@@ -1655,7 +1665,8 @@ def panel_synth_dataset(
 
     Returns
     -------
-    matplotlib.figure.Figure
+    matplotlib.figure.Figure or None
+        The figure if the plot is not shown; otherwise ``None``.
     """
     if fitted_gmm_view not in {"auto", "selected_patients", "class_average", "all_patients"}:
         raise ValueError(

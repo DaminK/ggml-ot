@@ -18,6 +18,7 @@ from sklearn import manifold
 from pydiffmap import diffusion_map
 
 from ggml_ot.plot._utils import savefig_or_show
+from ggml_ot.settings import settings
 
 
 def emb(
@@ -81,7 +82,7 @@ def emb(
     annotation_image_path : array-like of str or None, default None
         Image paths to overlay on the plot.
     return_embedding : bool, default False
-        If ``True``, return ``(ax, embedding)`` instead of just ``ax``.
+        If ``True``, return ``(ax, embedding)`` regardless of ``show``.
     show : bool or None, default None
         Whether to display the plot.  ``None`` (default) automatically
         shows in interactive environments (notebooks, IPython) and
@@ -93,9 +94,8 @@ def emb(
 
     Returns
     -------
-    matplotlib.axes.Axes
-        The axes containing the embedding plot (when
-        ``return_embedding=False``).
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
     tuple[matplotlib.axes.Axes, numpy.ndarray]
         ``(ax, embedding)`` when ``return_embedding=True``.
 
@@ -109,6 +109,8 @@ def emb(
 
     Supported methods: ``"umap"`` (default, adaptive ``n_neighbors``),
     ``"tsne"``, ``"mds"``, ``"diffusion"``, ``"fast_diffusion"``.
+    UMAP, t-SNE, and MDS use ``ggml_ot.settings.random_seed`` for
+    reproducibility. Set it to ``None`` for nondeterministic embeddings.
     """
     embedding = precomputed_emb if precomputed_emb is not None else _compute_embedding(distances, method, labels=labels)
     df, type_to_size = _create_dataframe(embedding, labels, symbols, annotation, cluster_ID, annotation_image_path)
@@ -166,10 +168,12 @@ def emb(
     if annotation is not None:
         _add_text_annotations(ax, df)
 
-    savefig_or_show(ax, default_name="embedding", show=show, save=save)
+    shown = savefig_or_show(ax, default_name="embedding", show=show, save=save)
 
     if return_embedding:
         return ax, embedding
+    if shown:
+        return None
     return ax
 
 
@@ -183,7 +187,12 @@ def _compute_embedding(distances, method, labels=None):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
             n_neighbors = _estimate_n_neighbors(distances, labels)
-            reducer = umap.UMAP(metric="precomputed", n_neighbors=n_neighbors, min_dist=0.5)
+            reducer = umap.UMAP(
+                metric="precomputed",
+                n_neighbors=n_neighbors,
+                min_dist=0.5,
+                random_state=settings.random_seed,
+            )
             return reducer.fit_transform(distances)
 
     elif method == "tsne":
@@ -193,6 +202,7 @@ def _compute_embedding(distances, method, labels=None):
             learning_rate="auto",
             init="random",
             perplexity=3,
+            random_state=settings.random_seed,
         ).fit_transform(distances)
 
     elif method == "diffusion":
@@ -213,7 +223,12 @@ def _compute_embedding(distances, method, labels=None):
         return np.transpose(eigenvectors[[0, 1], :])
 
     elif method == "mds":
-        mds = manifold.MDS(n_components=2, dissimilarity="precomputed", normalized_stress="auto")
+        mds = manifold.MDS(
+            n_components=2,
+            dissimilarity="precomputed",
+            normalized_stress="auto",
+            random_state=settings.random_seed,
+        )
         return mds.fit_transform(distances)
 
     else:

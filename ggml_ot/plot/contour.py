@@ -75,8 +75,8 @@ def contour_hyperparams(
 
     Returns
     -------
-    tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]
-        The figure and axes containing the contour plot.
+    tuple[matplotlib.figure.Figure, matplotlib.axes.Axes] or None
+        The figure and axes if the plot is not shown; otherwise ``None``.
     """
     if x == "reg_type" or y == "reg_type":
         raise ValueError("reg_type is a categorical parameter and cannot be used as axis in contour plots.")
@@ -131,9 +131,9 @@ def contour_hyperparams(
 
     plt.tight_layout()
 
-    savefig_or_show(fig, default_name="contour_hyperparams", show=show, save=save)
+    shown = savefig_or_show(fig, default_name="contour_hyperparams", show=show, save=save)
 
-    return fig, ax
+    return None if shown else (fig, ax)
 
 
 # -------------------------------------------------------------------

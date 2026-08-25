@@ -37,7 +37,8 @@ def gmm_components(
 
     Returns
     -------
-    matplotlib.figure.Figure | None
+    matplotlib.figure.Figure or None
+        The figure if the plot is not shown; otherwise ``None``.
     """
     ct = summary["celltype_table"]
     pw = summary["patient_weights"]

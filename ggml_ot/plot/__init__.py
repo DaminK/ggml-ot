@@ -1,7 +1,4 @@
-from .plotting import (
-    distribution,
-    clustermap_embedding,
-)
+from .plotting import clustermap_embedding
 
 from .embedding import emb as embedding
 
@@ -30,7 +27,6 @@ __all__ = [
     "clustermap",
     "clustermap_embedding",
     "contour_hyperparams",
-    "distribution",
     "table",
     "confusion_matrix",
     "scatter_subspace",

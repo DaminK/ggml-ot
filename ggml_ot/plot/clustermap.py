@@ -69,8 +69,8 @@ def clustermap(
 
     Returns
     -------
-    seaborn.matrix.ClusterGrid
-        The cluster-grid object (always returned).
+    seaborn.matrix.ClusterGrid or None
+        The cluster grid if the plot is not shown; otherwise ``None``.
     """
     colors = _get_color_mapping(copy.deepcopy(labels), cmap, hue_order)
 
@@ -112,9 +112,9 @@ def clustermap(
         **kwargs,
     )
 
-    savefig_or_show(grid, default_name="clustermap", show=show, save=save)
+    shown = savefig_or_show(grid, default_name="clustermap", show=show, save=save)
 
-    return grid
+    return None if shown else grid
 
 
 # ---------------------------------------------------------------------------

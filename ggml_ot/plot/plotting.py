@@ -32,6 +32,7 @@ def clustermap_embedding(
     *,
     plot="clustermap_embedding",
     title=None,
+    cmap="Set2",
     linkage="complete",
     show: bool | None = None,
     save: str | bool | None = None,
@@ -67,8 +68,8 @@ def clustermap_embedding(
 
     Returns
     -------
-    matplotlib.figure.Figure
-        The composed figure.
+    matplotlib.figure.Figure or None
+        The figure if the plot is not shown; otherwise ``None``.
     """
     if plot not in {"clustermap", "embedding", "clustermap_embedding"}:
         raise ValueError("`plot` must be one of {'clustermap', 'embedding', 'clustermap_embedding'}.")
@@ -77,7 +78,7 @@ def clustermap_embedding(
     fig = None
 
     if plot in {"clustermap", "clustermap_embedding"}:
-        g = clustermap(distances, labels, linkage=linkage, show=False, save=False)
+        g = clustermap(distances, labels, linkage=linkage, show=False, save=False, cmap=cmap)
 
         if plot == "clustermap_embedding":
             g.gs.update(left=0.05, right=0.55)
@@ -87,16 +88,17 @@ def clustermap_embedding(
         fig = g.figure
 
     if plot in {"embedding", "clustermap_embedding"}:
-        emb(distances, labels, ax=ax2, show=False, save=False, **kwargs)
         if fig is None:
-            fig = plt.gcf()
+            figsize = (30, 7) if kwargs.get("annotation_image_path") is not None else (5, 5)
+            fig, ax2 = plt.subplots(figsize=figsize)
+        emb(distances, labels, ax=ax2, show=False, save=False, cmap=cmap, **kwargs)
 
     if title is not None:
-        plt.suptitle(title)
+        fig.suptitle(title)
 
-    savefig_or_show(fig, default_name="clustermap_embedding", show=show, save=save)
+    shown = savefig_or_show(fig, default_name="clustermap_embedding", show=show, save=save)
 
-    return fig
+    return None if shown else fig
 
 
 # -------------------------------------------------------------------
@@ -149,8 +151,8 @@ def distribution(
 
     Returns
     -------
-    matplotlib.axes.Axes
-        The axes containing the scatter plot.
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
     """
     distributions, labels = _extract_data(dataset, distributions, labels)
 
@@ -160,8 +162,8 @@ def distribution(
     df_projected = _build_df(distributions, labels, projection, reducer, offset)
     ax = _plot_distributions(df_projected, title, legend)
 
-    savefig_or_show(ax, default_name="distribution", show=show, save=save)
-    return ax
+    shown = savefig_or_show(ax, default_name="distribution", show=show, save=save)
+    return None if shown else ax
 
 
 # -------------------------------------------------------------------

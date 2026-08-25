@@ -73,10 +73,14 @@ def savefig_or_show(
     # --- Show ---
     if show is None:
         show = matplotlib.is_interactive()
-    if show:
+    shown = bool(show)
+    if shown:
         plt.show()
-        return True
-    return False
+
+    if save:
+        plt.close(fig)
+
+    return shown
 
 
 def _resolve_figure(fig_or_ax):

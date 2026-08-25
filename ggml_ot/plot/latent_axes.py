@@ -43,7 +43,8 @@ def latent_axes(
 
     Returns
     -------
-    matplotlib.figure.Figure | None
+    matplotlib.figure.Figure or None
+        The figure if the plot is not shown; otherwise ``None``.
     """
     if axes is not None:
         ranking_df = ranking_df[ranking_df["axis"].isin(axes)]

@@ -46,7 +46,8 @@ def latent_enrichment(
 
     Returns
     -------
-    matplotlib.figure.Figure | None
+    matplotlib.figure.Figure or None
+        The figure if the plot is not shown; otherwise ``None``.
     """
     groups = sorted(enrichment_df[group_col].unique())
     n_groups = len(groups)
@@ -94,7 +95,13 @@ def gmm_component_enrichment(
     show: bool | None = None,
     save: str | bool | None = None,
 ):
-    """Shorthand for :func:`latent_enrichment` with ``group_col="component"``."""
+    """Shorthand for :func:`latent_enrichment` with ``group_col="component"``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure or None
+        The figure if the plot is not shown; otherwise ``None``.
+    """
     return latent_enrichment(
         enrichment_df,
         group_col="component",

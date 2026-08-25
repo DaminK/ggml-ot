@@ -50,8 +50,8 @@ def confusion_matrix(
 
     Returns
     -------
-    matplotlib.axes.Axes
-        The axes containing the heatmap.
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
     """
     annot_labels_ind = np.unique(true, return_index=True)[1]
     annot_labels = true[annot_labels_ind]
@@ -71,9 +71,9 @@ def confusion_matrix(
     ax.set(xlabel="Predicted Label", ylabel="True Label")
     ax.set_title(title)
 
-    savefig_or_show(ax, default_name="confusion_matrix", show=show, save=save)
+    shown = savefig_or_show(ax, default_name="confusion_matrix", show=show, save=save)
 
-    return ax
+    return None if shown else ax
 
 
 def table(
@@ -304,8 +304,8 @@ def gmm_fit_validation_boxplot(
 
     Returns
     -------
-    matplotlib.axes.Axes
-        Axes containing the box plot.
+    matplotlib.axes.Axes or None
+        The axes if the plot is not shown; otherwise ``None``.
     """
     data = pd.DataFrame(results).copy()
     required_cols = {train_col, validation_col}
@@ -369,5 +369,5 @@ def gmm_fit_validation_boxplot(
     ax.grid(True, axis="y", color="#E6E6E6", linewidth=0.8)
     ax.set_axisbelow(True)
 
-    savefig_or_show(ax, default_name="gmm_fit_validation_boxplot", show=show, save=save)
-    return ax
+    shown = savefig_or_show(ax, default_name="gmm_fit_validation_boxplot", show=show, save=save)
+    return None if shown else ax
