@@ -38,6 +38,33 @@ def parse_k_comps(k_comps: int | list[int] | tuple[int, ...]) -> tuple[int | Non
     return None, k_candidates
 
 
+def parse_factor_rank(factor_rank: int | list[int] | tuple[int, ...] | None) -> tuple[int | None, list[int] | None]:
+    """Resolve fixed-q vs candidate-q configuration from ``factor_rank``."""
+    if factor_rank is None or isinstance(factor_rank, (int, np.integer)):
+        return (None if factor_rank is None else int(factor_rank)), None
+
+    qs = sorted({int(q) for q in factor_rank})
+    if len(qs) == 0 or any(q < 1 for q in qs):
+        raise ValueError("factor_rank must contain positive integers.")
+    if len(qs) == 1:
+        return int(qs[0]), None
+    return None, qs
+
+
+def _aggregate_selection_score(
+    component_sharing: str,
+    scores: list[dict[str, float | int]],
+    scores_by_distribution: dict[str, list[dict[str, float | int]]] | None,
+) -> float:
+    """Best (lowest) selection score achieved, used to rank factor-rank candidates."""
+    if component_sharing == "global":
+        return float(min(float(s["score"]) for s in scores))
+    per_distribution_best = [
+        min(float(record["score"]) for record in dist_scores) for dist_scores in scores_by_distribution.values()
+    ]
+    return float(np.mean(per_distribution_best))
+
+
 def total_log_likelihood(model: object, x: np.ndarray) -> float:
     """Compute total log-likelihood for model and samples."""
     x_np = np.asarray(x, dtype=np.float32)
@@ -57,13 +84,16 @@ def total_log_likelihood(model: object, x: np.ndarray) -> float:
     raise TypeError("Unsupported fitted model type for log-likelihood evaluation.")
 
 
-def _free_parameter_count(k: int, d: int, covariance_type: str) -> int:
-    """Compute free parameter count for information criteria."""
-    if covariance_type == "diag":
-        cov_params = k * d
-    else:
-        cov_params = k * (d * (d + 1) // 2)
-    return (k * d) + cov_params + (k - 1)
+def _config_free_parameter_count(x: np.ndarray, config: object) -> int:
+    """Free parameter count for a fit config (delegates to the shared counter)."""
+    from ._fit_core import free_parameter_count
+
+    return free_parameter_count(
+        int(config.n_components),
+        int(x.shape[1]),
+        str(config.covariance_type),
+        factor_rank=getattr(config, "factor_rank", None),
+    )
 
 
 def bic_from_result(result: object, x: np.ndarray, config: object) -> float:
@@ -72,14 +102,14 @@ def bic_from_result(result: object, x: np.ndarray, config: object) -> float:
         return float(result.bic)
     ll_total = total_log_likelihood(result.model, x)
     n_samples = max(1, int(x.shape[0]))
-    p = _free_parameter_count(int(config.n_components), int(x.shape[1]), str(config.covariance_type))
+    p = _config_free_parameter_count(x, config)
     return float(-2.0 * ll_total + p * np.log(n_samples))
 
 
 def aic_from_result(result: object, x: np.ndarray, config: object) -> float:
     """Calculate Akaike Information Criterion (AIC)."""
     ll_total = total_log_likelihood(result.model, x)
-    p = _free_parameter_count(int(config.n_components), int(x.shape[1]), str(config.covariance_type))
+    p = _config_free_parameter_count(x, config)
     return float(-2.0 * ll_total + 2.0 * p)
 
 
@@ -381,6 +411,7 @@ def run_k_selection(
         "k_comps": [int(k) for k in k_candidates],
         "best_k": int(best_k),
         "scores": _scores_to_columnar(scores),
+        "selection_score": _aggregate_selection_score(component_sharing, scores, scores_by_distribution),
         "selection_cells_count": int(len(selection_idx)),
         "refit": refit,
         "train_frac": float(train_frac),
@@ -407,6 +438,7 @@ __all__ = [
     "aic_from_result",
     "bic_from_result",
     "heldout_nll_from_model",
+    "parse_factor_rank",
     "parse_k_comps",
     "run_k_selection",
     "total_log_likelihood",

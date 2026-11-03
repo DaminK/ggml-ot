@@ -4,9 +4,12 @@ Covers training, evaluation, train/test, and tuning flows on AnnData-backed data
 """
 
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import warnings
 import ggml_ot
 import pytest
+from anndata import AnnData
 from .utils.config import get_kwargs
 
 
@@ -67,3 +70,21 @@ def test_AnnDataTripletDataset_tune(anndata_datasets):
         assert w_thetas is not None
         assert scores is not None
         plt.close("all")
+
+
+@pytest.mark.gmm
+def test_AnnDataTripletDataset_layer_gmm_roundtrip():
+    """A GMM fitted on a layer must be fitted in, and reloaded with, that layer instead of ``.X``."""
+    rng = np.random.default_rng(0)
+    obs = pd.DataFrame({"sample": np.repeat(["s1", "s2", "s3", "s4"], 3), "patient_group": np.repeat(["A", "B"], 6)})
+    obs.index = obs.index.astype(str)
+    adata = AnnData(X=rng.normal(size=(12, 4)), obs=obs)
+    adata.layers["shifted"] = adata.X + 100.0
+
+    ggml_ot.from_anndata(adata, n_cells=3, layer="shifted").fit_gmm(k_comps=2, component_sharing="global")
+    mu = np.asarray(adata.uns["gmm_layer_shifted"]["model"]["mu"])
+    assert mu.min() > adata.X.max()
+
+    with pytest.warns(UserWarning, match=r"layer not provided"):
+        reloaded = ggml_ot.from_anndata(adata, gmm_key="gmm_layer_shifted", gmm_weights_source="components")
+    assert reloaded.layer == "shifted"

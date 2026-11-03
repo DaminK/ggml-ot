@@ -50,5 +50,5 @@ docs-with-nbsphinx:  ## Build Sphinx docs with notebook execution
 # ---------------------------------------------------------------------------
 
 clean:  ## Remove build artifacts
-	rm -rf docs/build htmlcov reports .coverage .pytest_cache
+	rm -rf docs/build docs/source/generated htmlcov reports .coverage .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

@@ -9,7 +9,7 @@ from ggml_ot._utils._anndata_utils import (
     get_cell_feature_matrix,
     get_distribution_ids,
     get_distribution_index,
-    get_patient_label_indices,
+    get_patient_labels,
     patient_labels,
 )
 from ggml_ot._utils._covariance import canonicalize_covariances
@@ -19,8 +19,8 @@ from ggml_ot._utils._weights import (
     normalize_weight_rows,
     normalize_weights,
 )
+from ggml_ot._utils._anndata_utils import store_ggml_dataset
 from ggml_ot._utils._validate import sanitize_degenerate_sample_specific_gmm_components
-from ggml_ot.data._parameter_setup import set_preprocessed
 from ._GaussianMixture import GaussianMixture
 
 
@@ -30,7 +30,7 @@ def _store_gmm_in_adata(
     gmm_key: str,
     component_sharing: Literal["global", "sample_specific"],
     use_rep: str | None,
-    covariance_type: Literal["diag", "full"],
+    covariance_type: Literal["diag", "full", "lowrank"],
     n_components: int,
     distribution_n_components: np.ndarray,
     fit_params: dict[str, Any],
@@ -44,6 +44,7 @@ def _store_gmm_in_adata(
     responsibilities: np.ndarray | None = None,
     weights_fit_scope: str = "all_cells",
     weights_source: str = "stored",
+    layer: str | None = None,
 ) -> None:
     """Persist a canonical GMM schema under ``adata.uns[gmm_key]``.
 
@@ -57,6 +58,8 @@ def _store_gmm_in_adata(
         GMM component sharing mode.
     use_rep
         Representation used for the persisted GMM, or ``None`` for raw ``.X``.
+    layer
+        Layer used for the persisted GMM, or ``None`` for raw ``.X`` (or ``use_rep``).
     covariance_type
         Covariance parameterization of the persisted model.
     n_components
@@ -115,6 +118,7 @@ def _store_gmm_in_adata(
     adata.uns[gmm_key] = {
         "component_sharing": component_sharing,
         "use_rep": use_rep,
+        "layer": layer,
         "covariance_type": covariance_type,
         "n_components": int(n_components),
         "distribution_n_components": distribution_n_components.tolist(),
@@ -191,8 +195,9 @@ def _infer_weights_via_component_prediction(
     component_sharing: str,
     covariance_type: str,
     use_rep,
+    layer=None,
 ) -> dict[str, np.ndarray]:
-    x = get_cell_feature_matrix(adata, use_rep=use_rep)
+    x = get_cell_feature_matrix(adata, use_rep=use_rep, layer=layer)
     patient_values = adata.obs[patient_col].astype(str).to_numpy()
     weight_rows = canonicalize_model_weights(gmm_cfg.get("model", {}).get("pi", None), n_components=n_components)
     n_distributions = len(distribution_ids)
@@ -247,6 +252,7 @@ def _infer_gmm_distribution_weights(
     component_sharing: str,
     covariance_type: str,
     use_rep,
+    layer=None,
 ) -> dict[str, np.ndarray]:
     valid_sources = {"auto", "stored", "components"}
     if gmm_weights_source not in valid_sources:
@@ -284,6 +290,7 @@ def _infer_gmm_distribution_weights(
                 component_sharing=component_sharing,
                 covariance_type=covariance_type,
                 use_rep=use_rep,
+                layer=layer,
             )
         except Exception as exc:
             component_error = exc
@@ -305,9 +312,10 @@ def _extract_fit_data_from_anndata(
     *,
     use_rep: str | None,
     distribution_col: str,
+    layer: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extract matrix-level fit inputs from AnnData."""
-    x = get_cell_feature_matrix(adata, use_rep=use_rep)
+    x = get_cell_feature_matrix(adata, use_rep=use_rep, layer=layer)
     distribution_ids = get_distribution_ids(adata, distribution_col=distribution_col)
     distribution_index = get_distribution_index(
         adata,
@@ -317,18 +325,47 @@ def _extract_fit_data_from_anndata(
     return x, distribution_index, distribution_ids
 
 
-def _resolve_gmm_use_rep(gmm_cfg: dict, use_rep):
-    gmm_use_rep = gmm_cfg.get("use_rep", None)
-    if use_rep is not None:
-        if gmm_use_rep != use_rep:
-            raise ValueError(f"use_rep {use_rep} does not match the one used for GMM fitting {gmm_use_rep}")
-        return use_rep
-    if gmm_use_rep is not None:
-        warnings.warn(
-            f"use_rep not provided, but GMM was fitted with use_rep {gmm_use_rep}. Setting use_rep to {gmm_use_rep}."
+def _extract_anchor_labels_from_anndata(adata, *, column: str) -> tuple[np.ndarray, list[str]]:
+    """Extract per-cell cell-type codes for anchored GMM fitting.
+
+    Returns integer codes aligned to ``adata`` row order (``-1`` for
+    unassigned / NaN labels) and the list of category names indexed by code.
+
+    Parameters
+    ----------
+    adata
+        AnnData whose ``obs[column]`` defines the anchoring cell types.
+    column
+        Name of the ``adata.obs`` column holding the cell-type labels.
+
+    Returns
+    -------
+    tuple[np.ndarray, list[str]]
+        ``(component_codes, category_names)`` where ``category_names[c]`` is the
+        name of code ``c``.
+    """
+    if column not in adata.obs.columns:
+        raise KeyError(
+            f"Anchor column {column!r} not found in adata.obs. Available columns: {list(adata.obs.columns)}."
         )
-        return gmm_use_rep
-    return None
+    series = adata.obs[column].astype("category")
+    component_codes = np.asarray(series.cat.codes.to_numpy(), dtype=int)  # NaN -> -1
+    category_names = [str(name) for name in series.cat.categories]
+    return component_codes, category_names
+
+
+def _resolve_gmm_rep(gmm_cfg: dict, name: str, value):
+    """Resolve ``use_rep`` / ``layer`` (*name*) against the value used for GMM fitting."""
+    gmm_value = gmm_cfg.get(name, None)
+    if value is not None:
+        if gmm_value != value:
+            raise ValueError(f"{name} {value} does not match the one used for GMM fitting {gmm_value}")
+        return value
+    if gmm_value is not None:
+        warnings.warn(
+            f"{name} not provided, but GMM was fitted with {name} {gmm_value}. Setting {name} to {gmm_value}."
+        )
+    return gmm_value
 
 
 def _extract_loaded_model(gmm_cfg: dict) -> tuple[np.ndarray, np.ndarray, str, str]:
@@ -411,18 +448,20 @@ def _build_patient_gmm_dicts(
     return supports_by_patient, covariances_by_patient, weights_by_patient, gmm_dicts, component_sharing == "global"
 
 
-def _set_preprocessed_from_patient_gmm_dicts(
+def _store_ggml_dataset_from_patient_gmm_dicts(
     adata,
     *,
     supports_by_patient: list[np.ndarray],
     covariances_by_patient: list[np.ndarray],
     weights_by_patient: list[np.ndarray],
     labels: list[int],
+    labels_str: list[str],
     use_rep,
     sample_gmm: bool,
     gmm_dicts: list[dict[str, np.ndarray | str]],
     n_cells: int,
     identical_supports: bool,
+    layer=None,
 ):
     if sample_gmm:
         # GaussianMixture.from_dict().sample() is the canonical sampling call.
@@ -430,35 +469,41 @@ def _set_preprocessed_from_patient_gmm_dicts(
         sampled_supports = [
             GaussianMixture.from_dict(d).sample(n_cells)[0].detach().cpu().float().numpy() for d in gmm_dicts
         ]
-        return set_preprocessed(
+        return store_ggml_dataset(
             adata,
             supports=sampled_supports,
             covariances=None,
             weights=None,
             distribution_labels=labels,
+            distribution_labels_str=labels_str,
             identical_supports=False,
             use_rep=use_rep,
+            layer=layer,
         )
 
     if identical_supports:
-        return set_preprocessed(
+        return store_ggml_dataset(
             adata,
             supports=np.asarray(supports_by_patient[0], dtype="f"),
             covariances=np.asarray(covariances_by_patient[0], dtype="f"),
             weights=weights_by_patient,
             distribution_labels=labels,
+            distribution_labels_str=labels_str,
             identical_supports=True,
             use_rep=use_rep,
+            layer=layer,
         )
 
-    return set_preprocessed(
+    return store_ggml_dataset(
         adata,
         supports=supports_by_patient,
         covariances=covariances_by_patient,
         weights=weights_by_patient,
         distribution_labels=labels,
+        distribution_labels_str=labels_str,
         identical_supports=False,
         use_rep=use_rep,
+        layer=layer,
     )
 
 
@@ -514,6 +559,7 @@ def gmm_from_anndata(
     n_cells,
     sample_gmm,
     gmm_weights_source,
+    layer=None,
 ):
     """Reconstruct GMM-based dataset inputs from ``adata.uns[gmm_key]``.
 
@@ -525,11 +571,12 @@ def gmm_from_anndata(
     if gmm_key not in adata.uns:
         raise KeyError(f"GMM not fitted yet; gmm_key {gmm_key} not in adata.uns keys {adata.uns.keys()}")
     gmm_cfg = adata.uns[gmm_key]
-    use_rep = _resolve_gmm_use_rep(gmm_cfg, use_rep=use_rep)
+    use_rep = _resolve_gmm_rep(gmm_cfg, "use_rep", use_rep)
+    layer = _resolve_gmm_rep(gmm_cfg, "layer", layer)
     supports, covariances, component_sharing, covariance_type = _extract_loaded_model(gmm_cfg)
     distribution_ids = _distribution_ids_for_gmm(gmm_cfg, gmm_key=gmm_key)
     patients = patient_labels(adata, patient_col)
-    labels = get_patient_label_indices(adata, patient_col=patient_col, label_col=label_col)
+    labels, labels_str = get_patient_labels(adata, patient_col=patient_col, label_col=label_col)
 
     n_components = int(supports.shape[1] if supports.ndim == 3 else supports.shape[0])
     weights_map = _infer_gmm_distribution_weights(
@@ -545,6 +592,7 @@ def gmm_from_anndata(
         component_sharing=component_sharing,
         covariance_type=covariance_type,
         use_rep=use_rep,
+        layer=layer,
     )
     if component_sharing == "sample_specific":
         sanitized_weights = sanitize_degenerate_sample_specific_gmm_components(
@@ -573,17 +621,19 @@ def gmm_from_anndata(
             gmm_key=gmm_key,
         )
     )
-    return _set_preprocessed_from_patient_gmm_dicts(
+    return _store_ggml_dataset_from_patient_gmm_dicts(
         adata,
         supports_by_patient=supports_by_patient,
         covariances_by_patient=covariances_by_patient,
         weights_by_patient=weights_by_patient,
         labels=labels,
+        labels_str=labels_str,
         use_rep=use_rep,
         sample_gmm=sample_gmm,
         gmm_dicts=gmm_dicts,
         n_cells=n_cells,
         identical_supports=identical_supports,
+        layer=layer,
     )
 
 

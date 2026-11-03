@@ -14,6 +14,7 @@ references
 [![PyPI Downloads](https://img.shields.io/pepy/dt/ggml-ot?logo=pypi)](https://pepy.tech/project/ggml-ot)
 [![Docs](https://app.readthedocs.org/projects/ggml-ot/badge/?version=latest)](https://ggml-ot.readthedocs.io)
 [![CI](https://github.com/DaminK/ggml-ot/actions/workflows/pytest.yml/badge.svg)](https://github.com/DaminK/ggml-ot/actions/workflows/pytest.yml)
+[![arXiv](https://img.shields.io/badge/arXiv-2506.15383-b31b1b.svg)](https://arxiv.org/abs/2506.15383)
 
 
 # ggml-ot: Supervised Optimal Transport

@@ -18,11 +18,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install poetry
-          poetry install --with test
+      # Linting needs only Ruff; the full project dependencies can exhaust runner disk space.
+      - name: Install Ruff
+        run: python -m pip install --no-cache-dir "ruff==0.11.13"
       - name: Lint with ruff
         run: |
-          poetry run ruff check --config pyproject.toml
+          ruff check --config pyproject.toml

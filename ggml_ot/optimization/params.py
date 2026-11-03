@@ -71,6 +71,7 @@ class DataLoaderParams:
     dataset: TripletDataset | AnnData_TripletDataset
     batch_size: int
     train_size: float | None = None
+    batch_strategy: Literal["auto", "stratified", "shuffle"] = "auto"
 
 
 # Generic OT parameters

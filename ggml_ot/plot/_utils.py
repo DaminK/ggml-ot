@@ -10,6 +10,46 @@ from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+
+from ggml_ot.plot._constants import PALETTE_LABELTYPE
+
+
+def label_colors(labels, *, label_type: str = "categorical", cmap=None, hue_order=None):
+    """Return per-label colors for discrete (categorical) labels.
+
+    The caller-provided palette (string or dict) is used with discrete
+    sampling, shared with the embedding scatter palette so the joined
+    ``clustermap_embedding`` plot stays color-consistent.
+
+    Parameters
+    ----------
+    labels
+        Per-distribution labels.
+    label_type
+        Only ``"categorical"`` (default) is supported in this stable release.
+    cmap
+        Colormap name or palette dict. Defaults to ``"Set2"`` from
+        :data:`~ggml_ot.plot._constants.PALETTE_LABELTYPE`.
+    hue_order
+        Optional custom ordering of categorical labels.
+
+    Returns
+    -------
+    list
+        One color per entry in *labels*.
+    """
+    palette_arg = cmap if cmap is not None else PALETTE_LABELTYPE[label_type]
+
+    import seaborn as sns
+
+    unique_inds = np.unique(labels, return_index=True)[1]
+    unique_labels = np.asarray([labels[i] for i in sorted(unique_inds)]).tolist() if hue_order is None else hue_order
+
+    if isinstance(palette_arg, str):
+        palette = sns.color_palette(palette=palette_arg, n_colors=len(unique_labels))
+        return [palette[unique_labels.index(lbl)] for lbl in labels]
+    return [palette_arg[lbl] for lbl in labels]
 
 
 def savefig_or_show(
@@ -123,7 +163,16 @@ def _split_dirname(split_idx: int, n_splits: int) -> str:
     return f"split_{split_idx:0{width}d}"
 
 
-def _resolve_plot_title(plot_title: str | None, ground_metric, split_idx: int, n_splits: int) -> str | None:
+def _resolve_plot_title(
+    plot_title: str | None,
+    ground_metric,
+    split_idx: int,
+    n_splits: int,
+    *,
+    split_strategy: str = "auto",
+    holdout_value=None,
+    label_type: str = "categorical",
+) -> str | None:
     """Resolve the plot title for one train/test split."""
     title = (
         plot_title
@@ -133,7 +182,8 @@ def _resolve_plot_title(plot_title: str | None, ground_metric, split_idx: int, n
     if title is None:
         return None
     if n_splits > 1:
-        return f"{title} ({_split_dirname(split_idx, n_splits).replace('_', ' ')})"
+        split_name = _split_dirname(split_idx, n_splits).replace("split_", "split: ")
+        return f"{title} {split_name}"
     return title
 
 
@@ -143,12 +193,12 @@ def _save_train_test_split_plots(
     symbols,
     plot,
     *,
-    ground_metric=None,
     split_idx: int,
     n_splits: int,
     plot_split_dir: str | Path | None,
-    plot_title: str | None,
+    title: str | None,
     cluster_linkage: str = "complete",
+    label_type: str = "categorical",
 ) -> None:
     """Render and optionally save benchmark split plots.
 
@@ -168,8 +218,8 @@ def _save_train_test_split_plots(
         Total number of train/test splits.
     plot_split_dir
         Root directory for split outputs. When ``None``, plots are only shown.
-    plot_title
-        Base title for the split plot(s).
+    title
+        Resolved title for the split plot(s).
     """
     plot_types = _normalise_plot_types(plot)
     if not plot_types:
@@ -181,7 +231,6 @@ def _save_train_test_split_plots(
     from ggml_ot.plot.plotting import clustermap_embedding
 
     split_dir = None if plot_split_dir is None else Path(plot_split_dir) / _split_dirname(split_idx, n_splits)
-    resolved_title = _resolve_plot_title(plot_title, ground_metric, split_idx, n_splits)
 
     previous_figdir = settings.figdir
     if split_dir is not None:
@@ -197,7 +246,8 @@ def _save_train_test_split_plots(
                     distances,
                     labels,
                     linkage=cluster_linkage,
-                    title=resolved_title,
+                    title=title,
+                    label_type=label_type,
                     show=show,
                     save=save_name,
                 )
@@ -208,8 +258,9 @@ def _save_train_test_split_plots(
                     distances,
                     labels,
                     symbols=symbols,
-                    title=resolved_title,
+                    title=title,
                     legend="Side",
+                    label_type=label_type,
                     show=show,
                     save=save_name,
                 )
@@ -221,7 +272,8 @@ def _save_train_test_split_plots(
                     labels,
                     symbols=symbols,
                     linkage=cluster_linkage,
-                    title=resolved_title,
+                    title=title,
+                    label_type=label_type,
                     show=show,
                     save=save_name,
                 )

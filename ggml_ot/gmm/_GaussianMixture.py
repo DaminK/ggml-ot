@@ -12,7 +12,7 @@ from ggml_ot import settings
 from ggml_ot._utils._batch import move_batch_to_device
 from ggml_ot._utils._linalg import calculate_matmul, calculate_matmul_n_times, _pinv_with_jitter
 
-from ._fit_core import GMMFitConfig, GMMResult
+from ._fit_core import GMMFitConfig, GMMResult, free_parameter_count
 from ggml_ot._utils._weights import normalize_weight_vector
 from ggml_ot._utils._covariance import apply_singularity_handling, _sanitize_full_covariances
 
@@ -29,6 +29,8 @@ class GaussianMixture(torch.nn.Module):
         init_params="kmeans",
         mu_init=None,
         var_init=None,
+        factor_rank=None,
+        psi_floor=1e-4,
     ):
         """Initialize a torch-native Gaussian mixture model.
 
@@ -39,7 +41,7 @@ class GaussianMixture(torch.nn.Module):
         n_features
             Feature dimensionality.
         covariance_type
-            Covariance parameterization (`"diag"` or `"full"`).
+            Covariance parameterization (`"diag"`, `"full"`, or `"lowrank"`).
         eps
             Numerical floor added to covariance estimates.
         init_params
@@ -48,6 +50,20 @@ class GaussianMixture(torch.nn.Module):
             Optional initial means tensor.
         var_init
             Optional initial covariance tensor.
+        factor_rank
+            Latent factor dimension ``q`` for ``covariance_type="lowrank"``.
+            Required to fit (``0 < factor_rank < n_features``); ``None`` to load
+            a previously fitted model from its stored covariance.
+        psi_floor
+            Relative floor for the diagonal uniquenesses ``Psi`` in
+            ``covariance_type="lowrank"`` (``psi_floor * global_feature_var``).
+
+        Notes
+        -----
+        A ``"lowrank"`` model is either *fitted* (``factor_rank`` given: live
+        ``loadings``/``psi`` parameters are registered and the E-step uses the
+        Woodbury identity) or *loaded* (``factor_rank is None`` with a full
+        ``var_init``: no factors are kept and scoring uses the stored ``var``).
         """
         super().__init__()
 
@@ -62,11 +78,26 @@ class GaussianMixture(torch.nn.Module):
 
         self.covariance_type = covariance_type
         self.init_params = init_params
+        self.psi_floor = float(psi_floor)
+        self._global_var = None  # per-feature variance for the psi floor; set by fit_from_numpy
 
-        if self.covariance_type not in ["full", "diag"]:
-            raise ValueError(f"covariance_type must be 'full' or 'diag', got '{self.covariance_type}'")
+        if self.covariance_type not in ["full", "diag", "lowrank"]:
+            raise ValueError(f"covariance_type must be 'full', 'diag', or 'lowrank', got '{self.covariance_type}'")
         if self.init_params not in ["kmeans", "random"]:
             raise ValueError(f"init_params must be 'kmeans' or 'random', got '{self.init_params}'")
+
+        self.factor_rank = None
+        if self.covariance_type == "lowrank":
+            if factor_rank is not None:
+                q = int(factor_rank)
+                if not (0 < q < self.n_features):
+                    raise ValueError(
+                        "lowrank factor_rank must satisfy 0 < factor_rank < n_features; "
+                        f"got factor_rank={q}, n_features={self.n_features}."
+                    )
+                self.factor_rank = q
+            elif self.var_init is None:
+                raise ValueError("lowrank requires factor_rank to fit, or a full var_init to load.")
 
         self._init_params()
 
@@ -108,10 +139,75 @@ class GaussianMixture(torch.nn.Module):
                     requires_grad=False,
                 )
 
+        elif self.covariance_type == "lowrank":
+            if self.factor_rank is not None:
+                # Fitting: placeholder factors; fit() seeds them from data once means exist.
+                q = self.factor_rank
+                self.loadings = torch.nn.Parameter(
+                    0.01 * torch.randn(1, self.n_components, self.n_features, q),
+                    requires_grad=False,
+                )
+                self.psi = torch.nn.Parameter(
+                    torch.ones(1, self.n_components, self.n_features),
+                    requires_grad=False,
+                )
+                self.var = torch.nn.Parameter(
+                    self._materialize_lowrank_var(self.loadings.data, self.psi.data),
+                    requires_grad=False,
+                )
+            else:
+                # Loaded from a stored covariance: no factors.
+                if self.var_init is None or self.var_init.size() != (
+                    1,
+                    self.n_components,
+                    self.n_features,
+                    self.n_features,
+                ):
+                    raise ValueError(
+                        "lowrank without factor_rank requires a full var_init with dimensions (1, %i, %i, %i)"
+                        % (self.n_components, self.n_features, self.n_features)
+                    )
+                self.loadings = None
+                self.psi = None
+                self.var = torch.nn.Parameter(self.var_init, requires_grad=False)
+
         self.pi = torch.nn.Parameter(torch.Tensor(1, self.n_components, 1), requires_grad=False).fill_(
             1.0 / self.n_components
         )
         self.params_fitted = False
+
+    def _materialize_lowrank_var(self, loadings, psi):
+        """Materialize full covariances from low-rank factors.
+
+        ``Sigma_k = Lambda_k Lambda_k.T + diag(Psi_k)``, symmetrized.
+
+        No diagonal jitter is added: the psi floor keeps ``Psi >= eps``
+        (:meth:`_clamp_psi`), so the result is already SPD and equals the
+        covariance the Woodbury E-step scores.
+
+        Parameters
+        ----------
+        loadings
+            Factor loadings tensor of shape ``(1, K, D, q)``.
+        psi
+            Diagonal uniquenesses tensor of shape ``(1, K, D)``.
+
+        Returns
+        -------
+        torch.Tensor
+            Materialized covariance tensor of shape ``(1, K, D, D)``.
+        """
+        eye = torch.eye(self.n_features, device=loadings.device, dtype=loadings.dtype)
+        var = loadings @ loadings.transpose(-1, -2) + psi.unsqueeze(-1) * eye
+        return 0.5 * (var + var.transpose(-1, -2))
+
+    def _clamp_psi(self, psi):
+        """Clamp diagonal uniquenesses by ``psi_floor`` relative to global variance."""
+        if self._global_var is not None:
+            gv = self._global_var.to(device=psi.device, dtype=psi.dtype)
+            floor = torch.clamp(self.psi_floor * torch.clamp(gv, min=self.eps), min=self.eps)
+            return torch.maximum(psi, floor)
+        return torch.clamp(psi, min=self.eps)
 
     @staticmethod
     def _normalize_pi(pi: np.ndarray, *, n_components: int) -> np.ndarray:
@@ -178,13 +274,14 @@ class GaussianMixture(torch.nn.Module):
                     f"for covariance_type='diag'. Got {np.asarray(payload['var']).shape}."
                 )
             var_t = torch.as_tensor(cov_np.reshape(1, n_components, n_features), dtype=torch.float32)
-        elif covariance_type == "full":
+        elif covariance_type in ("full", "lowrank"):
+            # "lowrank" loads from its stored full covariance, like "full".
             if cov_np.ndim == 4 and cov_np.shape[0] == 1:
                 cov_np = cov_np[0]
             if cov_np.ndim != 3 or cov_np.shape != (n_components, n_features, n_features):
                 raise ValueError(
                     "var must have shape (K, d, d) or (1, K, d, d) "
-                    f"for covariance_type='full'. Got {np.asarray(payload['var']).shape}."
+                    f"for covariance_type={covariance_type!r}. Got {np.asarray(payload['var']).shape}."
                 )
             var_t = torch.as_tensor(cov_np.reshape(1, n_components, n_features, n_features), dtype=torch.float32)
         else:
@@ -253,11 +350,12 @@ class GaussianMixture(torch.nn.Module):
         x = self.check_size(x)
         n = x.shape[0]
 
-        if self.covariance_type == "diag":
-            cov_params = self.n_components * self.n_features
-        else:
-            cov_params = self.n_components * (self.n_features * (self.n_features + 1) // 2)
-        free_params = (self.n_components * self.n_features) + cov_params + (self.n_components - 1)
+        free_params = free_parameter_count(
+            self.n_components,
+            self.n_features,
+            self.covariance_type,
+            factor_rank=self.factor_rank,
+        )
 
         bic = -2.0 * self.__score(x, as_average=False).mean() * n + free_params * np.log(n)
 
@@ -286,48 +384,37 @@ class GaussianMixture(torch.nn.Module):
             mu = self.get_kmeans_mu(x, n_centers=self.n_components)
             self.mu.data = mu
 
+        if self.covariance_type == "lowrank" and self.factor_rank is not None:
+            self._seed_lowrank_factors(x)
+
         i = 0
         j = np.inf
 
         while (i <= n_iter) and (j >= delta):
             log_likelihood_old = self.log_likelihood
-            mu_old = self.mu
-            var_old = self.var
+            if self.covariance_type == "lowrank":
+                # Detached clones so the non-improving-step revert restores the
+                # previous iterate (in-place ``.data`` writes alias otherwise).
+                mu_old = self.mu.detach().clone()
+                var_old = self.var.detach().clone()
+                loadings_old = self.loadings.detach().clone()
+                psi_old = self.psi.detach().clone()
+            else:
+                mu_old = self.mu
+                var_old = self.var
+                loadings_old = None
+                psi_old = None
 
             try:
                 self.__em(x)
                 self.log_likelihood = self.__score(x)
             except RuntimeError:
-                device = self.mu.device
-                self.__init__(
-                    self.n_components,
-                    self.n_features,
-                    covariance_type=self.covariance_type,
-                    mu_init=self.mu_init,
-                    var_init=self.var_init,
-                    eps=self.eps,
-                )
-                for p in self.parameters():
-                    p.data = p.data.to(device)
-                if self.init_params == "kmeans":
-                    self.mu.data = self.get_kmeans_mu(x, n_centers=self.n_components)
+                self._reinitialize_after_failure(x)
                 i += 1
                 continue
 
             if torch.isinf(self.log_likelihood.abs()) or torch.isnan(self.log_likelihood):
-                device = self.mu.device
-                self.__init__(
-                    self.n_components,
-                    self.n_features,
-                    covariance_type=self.covariance_type,
-                    mu_init=self.mu_init,
-                    var_init=self.var_init,
-                    eps=self.eps,
-                )
-                for p in self.parameters():
-                    p.data = p.data.to(device)
-                if self.init_params == "kmeans":
-                    self.mu.data = self.get_kmeans_mu(x, n_centers=self.n_components)
+                self._reinitialize_after_failure(x)
 
             i += 1
             j = self.log_likelihood - log_likelihood_old
@@ -335,8 +422,37 @@ class GaussianMixture(torch.nn.Module):
             if j <= delta:
                 self.__update_mu(mu_old)
                 self.__update_var(var_old)
+                if self.covariance_type == "lowrank":
+                    self.__update_loadings(loadings_old)
+                    self.__update_psi(psi_old)
 
         self.params_fitted = True
+
+    def _reinitialize_after_failure(self, x):
+        """Re-initialize parameters after a numerical failure during EM.
+
+        Preserves the covariance configuration (``factor_rank`` / ``psi_floor`` /
+        ``_global_var``) and re-seeds low-rank factors.
+        """
+        device = self.mu.device
+        global_var = self._global_var
+        self.__init__(
+            self.n_components,
+            self.n_features,
+            covariance_type=self.covariance_type,
+            mu_init=self.mu_init,
+            var_init=self.var_init,
+            eps=self.eps,
+            factor_rank=self.factor_rank,
+            psi_floor=self.psi_floor,
+        )
+        for p in self.parameters():
+            p.data = p.data.to(device)
+        self._global_var = global_var
+        if self.init_params == "kmeans":
+            self.mu.data = self.get_kmeans_mu(x, n_centers=self.n_components)
+        if self.covariance_type == "lowrank" and self.factor_rank is not None:
+            self._seed_lowrank_factors(x)
 
     def predict(self, x, probs=False):
         """Predict hard component assignments or probabilities.
@@ -417,7 +533,7 @@ class GaussianMixture(torch.nn.Module):
                 x_k = self.mu[0, k] + torch.randn(int(counts[k]), self.n_features, device=x.device) * torch.sqrt(
                     self.var[0, k]
                 )
-            elif self.covariance_type == "full":
+            else:  # "full" or "lowrank" — sample from the materialized full covariance
                 d_k = torch.distributions.multivariate_normal.MultivariateNormal(self.mu[0, k], self.var[0, k])
                 x_k = torch.stack([d_k.sample() for _ in range(int(counts[k]))])
 
@@ -458,32 +574,13 @@ class GaussianMixture(torch.nn.Module):
         x = self.check_size(x)
 
         if self.covariance_type == "full":
-            mu = self.mu
-            var = self.var
+            return self._full_log_prob_from_var(x)
 
-            d = x.shape[-1]
-            var_sanitized = _sanitize_full_covariances(var, self.eps)
-            # Use pseudo-inverse for robustness in near-singular covariance regimes.
-            precision, var_reg = _pinv_with_jitter(var_sanitized, self.eps)
-
-            log_2pi = d * np.log(2.0 * pi)
-            sign, log_det_cov = torch.linalg.slogdet(var_reg)
-            log_det_cov = torch.nan_to_num(log_det_cov, nan=np.log(self.eps), neginf=np.log(self.eps))
-            invalid = (sign <= 0) | ~torch.isfinite(sign)
-            if torch.any(invalid):
-                log_det_cov = torch.where(
-                    invalid,
-                    torch.log(torch.clamp(torch.abs(torch.linalg.det(var_reg)), min=self.eps)),
-                    log_det_cov,
-                )
-
-            x_mu_T = (x - mu).unsqueeze(-2)
-            x_mu = (x - mu).unsqueeze(-1)
-
-            x_mu_T_precision = calculate_matmul_n_times(self.n_components, x_mu_T, precision)
-            x_mu_T_precision_x_mu = calculate_matmul(x_mu_T_precision, x_mu)
-
-            return -0.5 * (log_2pi + log_det_cov.unsqueeze(-1) + x_mu_T_precision_x_mu)
+        if self.covariance_type == "lowrank":
+            # Fitted models keep factors (Woodbury); loaded models score via stored var.
+            if getattr(self, "loadings", None) is not None:
+                return self._woodbury_log_prob(x)
+            return self._full_log_prob_from_var(x)
 
         if self.covariance_type == "diag":
             mu = self.mu
@@ -496,6 +593,83 @@ class GaussianMixture(torch.nn.Module):
             return -0.5 * (self.n_features * np.log(2.0 * pi) + log_det + quad)
 
         raise ValueError(f"Unsupported covariance_type: {self.covariance_type}")
+
+    def _full_log_prob_from_var(self, x):
+        """Per-component log-density from materialized full covariances ``self.var``.
+
+        Shared by ``covariance_type="full"`` and loaded ``"lowrank"`` models.
+        """
+        mu = self.mu
+        var = self.var
+
+        d = x.shape[-1]
+        var_sanitized = _sanitize_full_covariances(var, self.eps)
+        # Use pseudo-inverse for robustness in near-singular covariance regimes.
+        precision, var_reg = _pinv_with_jitter(var_sanitized, self.eps)
+
+        log_2pi = d * np.log(2.0 * pi)
+        sign, log_det_cov = torch.linalg.slogdet(var_reg)
+        log_det_cov = torch.nan_to_num(log_det_cov, nan=np.log(self.eps), neginf=np.log(self.eps))
+        invalid = (sign <= 0) | ~torch.isfinite(sign)
+        if torch.any(invalid):
+            log_det_cov = torch.where(
+                invalid,
+                torch.log(torch.clamp(torch.abs(torch.linalg.det(var_reg)), min=self.eps)),
+                log_det_cov,
+            )
+
+        x_mu_T = (x - mu).unsqueeze(-2)
+        x_mu = (x - mu).unsqueeze(-1)
+
+        x_mu_T_precision = calculate_matmul_n_times(self.n_components, x_mu_T, precision)
+        x_mu_T_precision_x_mu = calculate_matmul(x_mu_T_precision, x_mu)
+
+        return -0.5 * (log_2pi + log_det_cov.unsqueeze(-1) + x_mu_T_precision_x_mu)
+
+    def _woodbury_objects(self):
+        """Shared ``q x q`` Woodbury objects for the live low-rank factors.
+
+        Returns ``(Lam, psi, inv_psi, A, M_chol)`` with the leading batch axis
+        squeezed, where ``Lam`` is ``(K, D, q)``, ``A = diag(Psi)^-1 Lambda``,
+        and ``M_chol`` is the Cholesky factor of ``M = I_q + Lambda.T A``.
+        """
+        Lam = self.loadings[0]  # (K, D, q)
+        psi = torch.clamp(self.psi[0], min=self.eps)  # (K, D)
+        inv_psi = torch.reciprocal(psi)  # (K, D)
+        q = Lam.shape[-1]
+        A = inv_psi.unsqueeze(-1) * Lam  # (K, D, q)
+        eye_q = torch.eye(q, device=Lam.device, dtype=Lam.dtype)
+        M = eye_q + Lam.transpose(-1, -2) @ A  # (K, q, q)
+        M_chol = torch.linalg.cholesky(M)
+        return Lam, psi, inv_psi, A, M_chol
+
+    def _woodbury_log_prob(self, x):
+        """Per-component log-density for live low-rank factors via Woodbury.
+
+        Avoids ``D x D`` inversions: each component solve is ``q x q``.
+        ``x`` is ``(N, 1, D)``; returns ``(N, K, 1)`` to match ``_estimate_log_prob``.
+        """
+        d = self.n_features
+        _, psi, inv_psi, A, M_chol = self._woodbury_objects()
+
+        xc = x - self.mu  # (N, K, D)
+
+        # logdet(Sigma) = sum(log Psi) + logdet(M)
+        log_det = torch.sum(torch.log(psi), dim=-1) + 2.0 * torch.sum(
+            torch.log(torch.diagonal(M_chol, dim1=-2, dim2=-1)), dim=-1
+        )  # (K,)
+
+        # quad = xc^T Sigma^-1 xc with Sigma^-1 = diag(inv_psi) - A M^-1 A^T
+        diag_term = torch.sum(xc * xc * inv_psi.unsqueeze(0), dim=-1)  # (N, K)
+        t = torch.einsum("nkd,kdq->nkq", xc, A)  # (N, K, q)
+        t_kqn = t.permute(1, 2, 0)  # (K, q, N)
+        y = torch.cholesky_solve(t_kqn, M_chol)  # (K, q, N)
+        lowrank_term = torch.sum(t_kqn * y, dim=1).transpose(0, 1)  # (N, K)
+        quad = diag_term - lowrank_term  # (N, K)
+
+        log_2pi = d * np.log(2.0 * pi)
+        log_prob = -0.5 * (log_2pi + log_det.unsqueeze(0) + quad)  # (N, K)
+        return log_prob.unsqueeze(-1)
 
     def _e_step(self, x):
         """Run the expectation step.
@@ -571,9 +745,120 @@ class GaussianMixture(torch.nn.Module):
 
         return pi, mu, var
 
+    def _m_step_lowrank(self, x, log_resp):
+        """Component-specific MFA (ECM) maximization step.
+
+        Updates ``pi``, ``mu`` with the standard weighted formulas, then
+        ``Lambda_k`` and component-specific ``Psi_k`` via latent-factor
+        posterior moments (McLachlan-Peel-Bean-2003 variant). All component
+        solves stay ``q x q`` through the shared Woodbury objects.
+
+        Returns
+        -------
+        tuple
+            ``(pi, mu, loadings, psi, var)`` where ``loadings`` is
+            ``(1, K, D, q)``, ``psi`` is ``(1, K, D)``, ``var`` is the
+            materialized ``(1, K, D, D)`` covariance.
+        """
+        x = self.check_size(x)  # (N, 1, D)
+
+        resp = torch.exp(log_resp)  # (N, K, 1)
+        resp = torch.nan_to_num(resp, nan=0.0, posinf=1.0, neginf=0.0)
+
+        pi_sum = torch.sum(resp, dim=0, keepdim=True) + self.eps  # (1, K, 1)
+        mu = torch.sum(resp * x, dim=0, keepdim=True) / pi_sum  # (1, K, D)
+        mu = torch.nan_to_num(mu, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Posterior moments from current factors: beta = M^-1 A^T, E[zz^T|x] = M^-1 + E[z]E[z]^T.
+        Lam, _, _, A, M_chol = self._woodbury_objects()
+        q = Lam.shape[-1]
+        M_inv = torch.cholesky_inverse(M_chol)  # (K, q, q)
+        beta = M_inv @ A.transpose(-1, -2)  # (K, q, D)
+
+        xc = x - mu  # (N, K, D); centered on the updated means
+        gamma = resp  # (N, K, 1)
+        n_k = torch.sum(gamma, dim=0).clamp(min=self.eps)  # (K, 1)
+
+        ez = torch.einsum("kqd,nkd->nkq", beta, xc)  # (N, K, q)
+
+        s_xz = torch.einsum("nkd,nkq->kdq", gamma * xc, ez) / n_k.unsqueeze(-1)  # (K, D, q)
+        ezz = torch.einsum("nkq,nkr->kqr", gamma * ez, ez) / n_k.unsqueeze(-1)  # (K, q, q)
+        s_zz = M_inv + ezz  # (K, q, q)
+
+        eye_q = torch.eye(q, device=x.device, dtype=x.dtype)
+        s_zz_inv = torch.cholesky_inverse(torch.linalg.cholesky(s_zz + self.eps * eye_q))
+        lam_new = s_xz @ s_zz_inv  # (K, D, q)
+
+        diag_s = torch.sum(gamma * xc * xc, dim=0) / n_k  # (K, D)
+        diag_lam_sxz = torch.sum(lam_new * s_xz, dim=-1)  # (K, D)
+        psi_new = self._clamp_psi(diag_s - diag_lam_sxz)  # (K, D)
+
+        loadings = lam_new.unsqueeze(0)  # (1, K, D, q)
+        psi = psi_new.unsqueeze(0)  # (1, K, D)
+        var = self._materialize_lowrank_var(loadings, psi)
+
+        pi = pi_sum / x.shape[0]
+        pi = torch.nan_to_num(pi, nan=1.0 / self.n_components, posinf=1.0, neginf=self.eps)
+        pi = torch.clamp(pi, min=self.eps)
+        pi = pi / torch.sum(pi, dim=1, keepdim=True)
+
+        return pi, mu, loadings, psi, var
+
+    def _seed_lowrank_factors(self, x):
+        """Data-dependent PPCA/MFA seed for ``Lambda_k``/``Psi_k``.
+
+        Uses hard nearest-mean assignment to the current means, then per
+        component seeds ``Lambda_k`` from the top-``q`` eigenpairs of the
+        weighted covariance and ``Psi_k`` from the residual diagonal.
+        """
+        x2 = x.squeeze(1) if x.dim() == 3 else x  # (N, D)
+        mu = self.mu[0]  # (K, D)
+        q = self.factor_rank
+        device, dtype = x2.device, x2.dtype
+
+        assign = torch.argmin(torch.cdist(x2, mu), dim=1)  # (N,)
+        loadings = torch.zeros(self.n_components, self.n_features, q, device=device, dtype=dtype)
+        psi = torch.empty(self.n_components, self.n_features, device=device, dtype=dtype)
+
+        global_var = self._global_var if self._global_var is not None else x2.var(dim=0, unbiased=False)
+        global_var = torch.clamp(global_var.to(device=device, dtype=dtype), min=self.eps)
+
+        for k in range(self.n_components):
+            pts = x2[assign == k]
+            if pts.shape[0] <= q:
+                # Degenerate component: small random loadings, global-variance psi.
+                loadings[k] = 0.01 * torch.randn(self.n_features, q, device=device, dtype=dtype)
+                psi[k] = global_var
+                continue
+            xc = pts - mu[k]
+            s_k = (xc.transpose(0, 1) @ xc) / pts.shape[0]  # (D, D)
+            eigvals, eigvecs = torch.linalg.eigh(s_k)  # ascending
+            top_vals = eigvals[-q:].flip(0)  # (q,) descending
+            top_vecs = eigvecs[:, -q:].flip(1)  # (D, q)
+            # PPCA isotropic residual from the discarded spectrum.
+            sigma2 = torch.clamp(eigvals[:-q].mean(), min=0.0) if eigvals.shape[0] > q else eigvals.new_zeros(())
+            scale = torch.sqrt(torch.clamp(top_vals - sigma2, min=0.0))  # (q,)
+            loadings[k] = top_vecs * scale.unsqueeze(0)
+            psi[k] = torch.diagonal(s_k) - torch.sum(loadings[k] ** 2, dim=1)
+
+        psi = self._clamp_psi(psi)
+        self.loadings.data = loadings.unsqueeze(0)
+        self.psi.data = psi.unsqueeze(0)
+        self.var.data = self._materialize_lowrank_var(self.loadings.data, self.psi.data)
+
     def __em(self, x):
         """Perform one EM update."""
         _, log_resp = self._e_step(x)
+
+        if self.covariance_type == "lowrank":
+            pi, mu, loadings, psi, var = self._m_step_lowrank(x, log_resp)
+            self.__update_pi(pi)
+            self.__update_mu(mu)
+            self.__update_loadings(loadings)
+            self.__update_psi(psi)
+            self.__update_var(var)
+            return
+
         pi, mu, var = self._m_step(x, log_resp)
 
         self.__update_pi(pi)
@@ -617,7 +902,7 @@ class GaussianMixture(torch.nn.Module):
 
     def __update_var(self, var):
         """Update covariance parameter tensor."""
-        if self.covariance_type == "full":
+        if self.covariance_type in ("full", "lowrank"):
             if var.size() not in [
                 (self.n_components, self.n_features, self.n_features),
                 (1, self.n_components, self.n_features, self.n_features),
@@ -650,6 +935,24 @@ class GaussianMixture(torch.nn.Module):
                 self.var = var.unsqueeze(0)
             elif var.size() == (1, self.n_components, self.n_features):
                 self.var.data = var
+
+    def __update_loadings(self, loadings):
+        """Update low-rank factor loadings parameter tensor."""
+        if loadings is None or getattr(self, "loadings", None) is None:
+            return
+        expected = (1, self.n_components, self.n_features, self.factor_rank)
+        if loadings.size() != expected:
+            raise ValueError(f"Input loadings does not have required tensor dimensions {expected}")
+        self.loadings.data = loadings
+
+    def __update_psi(self, psi):
+        """Update low-rank diagonal uniquenesses parameter tensor."""
+        if psi is None or getattr(self, "psi", None) is None:
+            return
+        expected = (1, self.n_components, self.n_features)
+        if psi.size() != expected:
+            raise ValueError(f"Input psi does not have required tensor dimensions {expected}")
+        self.psi.data = psi
 
     def __update_pi(self, pi):
         """Update mixture weight parameter tensor."""
@@ -739,6 +1042,9 @@ class GaussianMixture(torch.nn.Module):
         best_result: GMMResult | None = None
         fit_errors: list[str] = []
 
+        # Per-feature variance reference for the lowrank psi_floor clamp.
+        global_var = x_t.var(dim=0, unbiased=False) if config.covariance_type == "lowrank" else None
+
         for i in range(n_init):
             try:
                 model = cls(
@@ -746,7 +1052,11 @@ class GaussianMixture(torch.nn.Module):
                     n_features=n_features,
                     covariance_type=config.covariance_type,
                     eps=eps_value,
+                    factor_rank=config.factor_rank,
+                    psi_floor=config.psi_floor,
                 ).to(device)
+                if global_var is not None:
+                    model._global_var = global_var
                 model.fit(x_t, delta=config.tol, n_iter=config.max_iter)
 
                 responsibilities = model.predict_responsibilities_numpy(x)

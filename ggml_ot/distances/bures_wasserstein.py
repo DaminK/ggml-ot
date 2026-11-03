@@ -31,8 +31,8 @@ def bures_covariance_distance(
     Notes
     -----
     In the full Bures path (`diag_approx=False`), `eps` is applied as an
-    unconditional symmetrise+jitter step on `cov_i` before the Cholesky square
-    root, and as a clamp floor on the cross-product eigenvalues. The jitter
+    unconditional symmetrise+jitter step on `cov_i` before the Cholesky
+    factorization, and as a clamp floor on the cross-product eigenvalues. The jitter
     both prevents failure on near-singular projected covariances and bounds the
     Cholesky condition number to avoid gradient explosion.
     """
@@ -73,11 +73,12 @@ def bures_covariance_distance(
     tr_i = torch.diagonal(cov_i_b, dim1=-2, dim2=-1).sum(-1)
     tr_j = torch.diagonal(cov_j_b, dim1=-2, dim2=-1).sum(-1)
 
-    # Batched square root of cov_i: (B, n_i, D, D)
+    # Batched factors for the Bures congruence: (B, n_i, D, D).
     # Use Cholesky for stable backward when gradients flow through
-    # cross-distribution pairs; eigendecomposition for symmetric (pairwise).
-    # Apply eps jitter before Cholesky to handle near-singular GMM covariances
-    # (e.g. padded phantom components with eps*I).
+    # cross-distribution pairs; use the symmetric square root for pairwise
+    # evaluation. For cov_i = L @ L.T, the correct Cholesky congruence is
+    # L.T @ cov_j @ L. Apply eps jitter before Cholesky to handle near-singular
+    # GMM covariances (e.g. padded phantom components with eps*I).
     use_cholesky = (not symmetric) and (cov_i.requires_grad or cov_j.requires_grad)
     if use_cholesky:
         # Jitter unconditionally before Cholesky. This serves two purposes:
@@ -89,17 +90,22 @@ def bures_covariance_distance(
         # The eps shift is small relative to typical covariance magnitudes, so cost-matrix
         # bias is negligible for well-conditioned components.
         cov_i_b = _regularize_projected_covariances(cov_i_b, eps=_eps)
-        root_i = torch.linalg.cholesky(cov_i_b)  # (B, n_i, D, D) lower triangular
-        root_i_t = root_i.transpose(-1, -2)
+        factor_i = torch.linalg.cholesky(cov_i_b)  # (B, n_i, D, D) lower triangular
+        left_factor_i = factor_i.transpose(-1, -2)
+        right_factor_i = factor_i
     else:
-        root_i = matrix_sqrt(cov_i_b, eps=_eps)  # (B, n_i, D, D) symmetric
-        root_i_t = root_i  # symmetric square root: transpose is identity
+        factor_i = matrix_sqrt(cov_i_b, eps=_eps)  # (B, n_i, D, D) symmetric
+        left_factor_i = factor_i
+        right_factor_i = factor_i
 
-    # Batched cross product: root_i @ cov_j @ root_i^T  →  (B, n_i, n_j, D, D)
-    root_i_exp = root_i.unsqueeze(2)  # (B, n_i, 1, D, D)
-    root_i_t_exp = root_i_t.unsqueeze(2)  # (B, n_i, 1, D, D)
+    # Batched congruence: left_factor_i @ cov_j @ right_factor_i -> (B, n_i, n_j, D, D)
+    left_factor_i_exp = left_factor_i.unsqueeze(2)  # (B, n_i, 1, D, D)
+    right_factor_i_exp = right_factor_i.unsqueeze(2)  # (B, n_i, 1, D, D)
     cov_j_exp = cov_j_b.unsqueeze(1)  # (B, 1, n_j, D, D)
-    cross = torch.matmul(torch.matmul(root_i_exp, cov_j_exp), root_i_t_exp)  # (B, n_i, n_j, D, D)
+    cross = torch.matmul(
+        torch.matmul(left_factor_i_exp, cov_j_exp),
+        right_factor_i_exp,
+    )
 
     # Symmetrise + jitter for numerical stability (reuse existing utility)
     cross = _regularize_projected_covariances(cross, eps=_eps)

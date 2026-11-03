@@ -7,7 +7,6 @@ Dataset source is selected via ``--data-source`` and surfaced as parametrized ca
 from __future__ import annotations
 
 from itertools import product
-import warnings
 
 import pytest
 import torch
@@ -68,17 +67,8 @@ def test_performance_on_empirical(capsys, request, empirical_case: tuple[str, st
     if device == "gpu":
         _ = torch.zeros(1, device="cuda:0")  # warm-up
 
-    # Exact EMD2 on CUDA is expected to warn that OT solve is CPU-bound.
-    if device == "gpu" and solver == "emd2":
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r"Exact EMD2 solver is CPU-bound; no GPU acceleration is used for OT solves\.",
-                category=UserWarning,
-            )
-            elapsed, acc = _run_benchmark(ds, solver=solver)
-    else:
-        elapsed, acc = _run_benchmark(ds, solver=solver)
+    # Exact EMD2 on CUDA prints a [ggml_ot] notice that OT solve is CPU-bound.
+    elapsed, acc = _run_benchmark(ds, solver=solver)
 
     _, dataset_ref = get_perf_setup_identity(request, data_source=data_source)
     snapshot_params = build_snapshot_params(

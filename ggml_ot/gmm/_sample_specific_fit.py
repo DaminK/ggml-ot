@@ -62,7 +62,7 @@ def build_padded_sample_specific_outputs(
     distribution_ids: np.ndarray,
     x: np.ndarray,
     full_distribution_index: np.ndarray,
-    covariance_type: Literal["diag", "full"],
+    covariance_type: Literal["diag", "full", "lowrank"],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray], np.ndarray]:
     """Pad per-distribution fitted outputs to ``K_max`` and assemble canonical payload."""
     per_dist_mu: list[np.ndarray] = []

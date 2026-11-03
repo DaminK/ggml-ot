@@ -11,6 +11,7 @@ import pandas as pd
 from ggml_ot._utils._anndata_utils import (
     get_distribution_ids,
     get_distribution_index,
+    get_obs_matrix_key,
 )
 
 _SUMMARY_COLUMN_ORDER = [
@@ -125,7 +126,8 @@ def _resolve_validation_target(data, *, gmm_key: str | None, patient_col: str | 
     """Resolve the AnnData object and metadata needed for hold-out validation."""
     if hasattr(data, "adata"):
         use_rep = getattr(data, "use_rep", None)
-        resolved_gmm_key = gmm_key or f"gmm_{'X' if use_rep is None else use_rep}"
+        layer = getattr(data, "layer", None)
+        resolved_gmm_key = gmm_key or f"gmm_{get_obs_matrix_key(use_rep, layer)}"
         resolved_patient_col = patient_col or getattr(data, "patient_col", None)
         resolved_label_col = label_col if label_col is not None else getattr(data, "label_col", None)
         if resolved_patient_col is None:

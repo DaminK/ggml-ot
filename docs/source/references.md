@@ -24,8 +24,12 @@ Kühn, Damin, and Michael T. Schaub. "Global Ground Metric Learning with Applica
 
 ## Used datasets:
 
-- Myocardial Infarction: *Kuppe, Christoph, et al., "Spatial multi-omic map of human myocardial infarction." Nature (2022)*
-- Breast Cancer: *Kumar, Tapsi, et al., "A spatially resolved single-cell genomic atlas of the adult human breast." Nature (2023)*
+The dataset shortcuts in {mod}`ggml_ot.data` load these curated CELLxGENE cohorts:
+
+- Breast Cancer (`ggml_ot.data.breastcancer`): *Pal, Bhupinder, et al., "A single-cell RNA expression atlas of normal, preneoplastic and tumorigenic states in the human breast." The EMBO Journal (2021)*
+- COVID-19 (`ggml_ot.data.covid`): *Stephenson, Emily, et al., "Single-cell multi-omics analysis of the immune response in COVID-19." Nature Medicine (2021)*
+- Myocardial Infarction (`ggml_ot.data.myocardial_infarction`): *Kuppe, Christoph, et al., "Spatial multi-omic map of human myocardial infarction." Nature (2022)*
+- Kidney Injury (`ggml_ot.data.kidney_injury`): *Lake, Blue B., et al., "An atlas of healthy and injured cell states and niches in the human kidney." Nature (2023)*
 
 ## Helpful packages:
 

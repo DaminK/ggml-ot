@@ -30,8 +30,10 @@ from ggml_ot.plot import subspace as subspace_mod
 
 @pytest.fixture(autouse=True)
 def _no_show(monkeypatch):
-    """Prevent plt.show from blocking in all tests."""
+    """Prevent plt.show from blocking and close figures after each test."""
     monkeypatch.setattr(plt, "show", lambda *args, **kwargs: None)
+    yield
+    plt.close("all")
 
 
 @pytest.fixture()
@@ -57,16 +59,33 @@ _D = np.array(
     dtype=float,
 )
 _LABELS = ["a", "a", "b", "b"]
+_PRECOMPUTED_EMB = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+_TEST_ONLY_LABELS = np.array(["train_a", "train_a", "test_only", "train_b"], dtype=object)
+_TRAIN_TEST_SYMBOLS = np.array(["train", "train", "test", "train"], dtype=object)
 
 
 def test_clustermap_embedding_returns_open_figures_when_not_shown():
+    figures_before = set(plt.get_fignums())
     embedding_fig = ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="embedding", method="mds", show=False)
+    embedding_figures = set(plt.get_fignums()) - figures_before
     clustermap_fig = ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="clustermap", show=False)
 
+    assert embedding_figures == {embedding_fig.number}
     assert plt.fignum_exists(embedding_fig.number)
     assert plt.fignum_exists(clustermap_fig.number)
     plt.close(embedding_fig)
     plt.close(clustermap_fig)
+
+
+@pytest.mark.parametrize("plot", ["embedding", "clustermap_embedding"])
+def test_clustermap_embedding_renders_each_sample_once(plot):
+    fig = ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot=plot, method="mds", show=False)
+    embedding_axes = [ax for ax in fig.axes if ax.get_title() == "Embedding (MDS)"]
+
+    assert len(embedding_axes) == 1
+    plotted_points = sum(len(collection.get_offsets()) for collection in embedding_axes[0].collections)
+    assert plotted_points == len(_LABELS)
+    plt.close(fig)
 
 
 @pytest.mark.parametrize(
@@ -131,6 +150,26 @@ def test_plots_return_none_when_shown():
     assert ggml_ot.pl.clustermap(_D, _LABELS, show=True) is None
     assert ggml_ot.pl.clustermap_embedding(_D, _LABELS, plot="clustermap", show=True) is None
     plt.close("all")
+
+
+@pytest.mark.parametrize("symbols", [None, _TRAIN_TEST_SYMBOLS])
+def test_embedding_legend_includes_test_only_category(symbols):
+    """Categorical embedding legends should use the full train+test labels."""
+    ax = ggml_ot.pl.embedding(
+        _D,
+        _TEST_ONLY_LABELS,
+        precomputed_emb=_PRECOMPUTED_EMB,
+        symbols=symbols,
+        method="mds",
+        show=False,
+    )
+
+    legend = ax.get_legend()
+    assert legend is not None
+    texts = [text.get_text() for text in legend.get_texts()]
+    assert "test_only" in texts
+    if symbols is not None:
+        assert {"train", "test"} <= set(texts)
 
 
 # -------------------------------------------------------------------
@@ -589,3 +628,37 @@ def test_ellipse_overlay_none_mode_keeps_all_components_grey():
     assert np.allclose(ax.patches[0].get_edgecolor()[:3], expected[:3])
     assert np.allclose(ax.patches[1].get_edgecolor()[:3], expected[:3])
     plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Regression: categorical AnnData subset plot path (label streamline)
+# ---------------------------------------------------------------------------
+
+
+def test_train_test_categorical_subset_plot_path_runs(tmp_path):
+    """Train/test split plotting on a categorical AnnData subset must not raise.
+
+    Regression test for the label-streamline subset bug: a train/test subset
+    plotted its embedding with ``distribution_labels_str`` recomputed from the
+    full AnnData, so the label-array length diverged from the subset's supports
+    and the embedding scatter raised. This drives the formerly-broken
+    ``_subset`` -> ``compute_OT`` -> ``_save_train_test_split_plots`` -> ``emb``
+    path end to end.
+    """
+    adata = ggml_ot.data.synth_anndata(distribution_size=20)
+    dataset = ggml_ot.from_anndata(adata, n_cells=10)
+    assert dataset.label_type == "categorical"
+
+    ggml_ot.train_test(
+        dataset,
+        ground_metric="euclidean",
+        n_splits=1,
+        scoring=("knn",),
+        plot_split=True,
+        plot_type="embedding",
+        plot_split_dir=tmp_path,
+        print_table=False,
+    )
+
+    embedding_file = tmp_path / "split_00" / f"embedding.{ggml_ot.settings.figformat}"
+    assert embedding_file.exists()

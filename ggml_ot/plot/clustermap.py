@@ -12,7 +12,7 @@ from matplotlib.colors import LogNorm
 import seaborn as sns
 import torch
 
-from ggml_ot.plot._utils import savefig_or_show
+from ggml_ot.plot._utils import label_colors, savefig_or_show
 
 
 def clustermap(
@@ -24,9 +24,10 @@ def clustermap(
     title="Clustermap",
     dist_name="OT Distance",
     log=False,
-    cmap="Set2",
+    cmap=None,
     hue_order=None,
     annotation=False,
+    label_type: str = "categorical",
     show: bool | None = None,
     save: str | bool | None = None,
     **kwargs,
@@ -50,12 +51,15 @@ def clustermap(
         Label for the colour-bar.
     log : bool, default False
         Apply logarithmic colour scaling.
-    cmap : str or dict, default ``"Set2"``
-        Colour palette for sample annotations.
+    cmap : str, dict, or None, default None
+        Colour palette for sample annotations. ``None`` falls back to ``"Set2"``.
     hue_order : array-like or None, default None
-        Custom ordering of class labels for colour mapping.
+        Custom ordering of class labels for colour mapping (categorical only).
     annotation : bool, default False
         Display sample labels on the x-axis.
+    label_type : {"categorical"}, default ``"categorical"``
+        How to colour sample annotations. Only ``"categorical"`` is supported
+        in this stable release.
     show : bool or None, default None
         Whether to display the plot.  ``None`` (default) automatically
         shows in interactive environments (notebooks, IPython) and
@@ -72,7 +76,7 @@ def clustermap(
     seaborn.matrix.ClusterGrid or None
         The cluster grid if the plot is not shown; otherwise ``None``.
     """
-    colors = _get_color_mapping(copy.deepcopy(labels), cmap, hue_order)
+    colors = label_colors(copy.deepcopy(labels), label_type=label_type, cmap=cmap, hue_order=hue_order)
 
     # Ensure distances is a numpy array (handle Tensors)
     if isinstance(distances, torch.Tensor):
@@ -120,18 +124,6 @@ def clustermap(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _get_color_mapping(labels, cmap, hue_order):
-    unique_inds = np.unique(labels, return_index=True)[1]
-    unique_labels = np.asarray([labels[i] for i in sorted(unique_inds)]).tolist() if hue_order is None else hue_order
-
-    if isinstance(cmap, str):
-        palette = sns.color_palette(palette=cmap, n_colors=len(unique_labels))
-        colors = [palette[unique_labels.index(lbl)] for lbl in labels]
-    else:
-        colors = [cmap[lbl] for lbl in labels]
-    return colors
 
 
 def _plot_clustermap(

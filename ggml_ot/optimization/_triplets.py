@@ -7,6 +7,7 @@ import warnings
 import torch
 
 
+# TODO consider move to utils
 def warn_empty_triplets(
     triplets_idx: torch.Tensor,
     labels,

@@ -173,6 +173,9 @@ def canonicalize_covariances(
     cov_np = np.asarray(covariances, dtype=np.float64)
     mu_np = np.asarray(supports, dtype=np.float64)
 
+    # "lowrank" stores materialized full covariances; canonicalize like "full".
+    if covariance_type == "lowrank":
+        covariance_type = "full"
     if covariance_type not in {"diag", "full"}:
         raise ValueError(f"Unsupported covariance_type: {covariance_type!r}.")
     if mu_np.ndim < 2:
@@ -273,7 +276,8 @@ def apply_singularity_handling(
         For ``"guarded"``: any eigenvalue still below *eps* after clamping.
         For all modes: non-finite covariance entries.
     """
-    if covariance_type != "full":
+    # "lowrank" materializes full (K, D, D) covariances and is hardened like "full".
+    if covariance_type not in ("full", "lowrank"):
         return var
 
     var_np = np.asarray(var, dtype=np.float64)
@@ -324,7 +328,8 @@ def apply_singularity_handling(
 
         # Check residual singularity after reconstruction (floating-point safety).
         min_eig_after = float(np.min(np.linalg.eigvalsh(result[k])))
-        if min_eig_after < floor:
+        tolerance = max(1e-12, floor * 1e-6)
+        if min_eig_after < floor - tolerance:
             if singularity_handling == "robust":
                 warnings.warn(
                     f"GMM component {k}/{n_components} is still near-singular after eigenvalue-floor "

@@ -10,6 +10,7 @@ _PUBLIC_SETTINGS_KEYS = (
     "device",
     "verbose",
     "figdir",
+    "datadir",
     "random_seed",
     "restore_adata_params",
 )

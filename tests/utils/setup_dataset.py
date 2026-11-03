@@ -96,9 +96,11 @@ def _load_network_anndata(*, dataset_id: str, apply_hvg: bool) -> Any:
 
 def _build_smoke_datasets(adata, *, n_cells: int) -> dict[str, Any]:
     """Build standard AnnData dataset variants for smoke/integration tests."""
+    adata.layers["scaled"] = 2 * adata.X
     return {
         "default": ggml_ot.from_anndata(adata, n_cells=n_cells),
         "use_rep": ggml_ot.from_anndata(adata, use_rep="X_pca", n_cells=n_cells),
+        "layer": ggml_ot.from_anndata(adata, layer="scaled", n_cells=n_cells),
         "group_by": ggml_ot.from_anndata(adata, group_by="cell_type"),
     }
 

@@ -34,6 +34,7 @@ def clustermap_embedding(
     title=None,
     cmap="Set2",
     linkage="complete",
+    label_type: str = "categorical",
     show: bool | None = None,
     save: str | bool | None = None,
     **kwargs,
@@ -55,6 +56,11 @@ def clustermap_embedding(
         ``"clustermap_embedding"``.
     title : str or None, default None
         Overall figure title.
+    linkage : str, default ``"complete"``
+        Linkage method forwarded to :func:`clustermap`.
+    label_type : {"categorical"}, default ``"categorical"``
+        Forwarded to both subplots. Only ``"categorical"`` is supported in
+        this stable release.
     show : bool or None, default None
         Whether to display the plot.  ``None`` (default) automatically
         shows in interactive environments (notebooks, IPython) and
@@ -78,7 +84,7 @@ def clustermap_embedding(
     fig = None
 
     if plot in {"clustermap", "clustermap_embedding"}:
-        g = clustermap(distances, labels, linkage=linkage, show=False, save=False, cmap=cmap)
+        g = clustermap(distances, labels, linkage=linkage, label_type=label_type, show=False, save=False, cmap=cmap)
 
         if plot == "clustermap_embedding":
             g.gs.update(left=0.05, right=0.55)
@@ -91,7 +97,16 @@ def clustermap_embedding(
         if fig is None:
             figsize = (30, 7) if kwargs.get("annotation_image_path") is not None else (5, 5)
             fig, ax2 = plt.subplots(figsize=figsize)
-        emb(distances, labels, ax=ax2, show=False, save=False, cmap=cmap, **kwargs)
+        emb(
+            distances,
+            labels,
+            ax=ax2,
+            label_type=label_type,
+            show=False,
+            save=False,
+            cmap=cmap,
+            **kwargs,
+        )
 
     if title is not None:
         fig.suptitle(title)

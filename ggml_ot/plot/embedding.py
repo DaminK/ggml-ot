@@ -17,6 +17,7 @@ from sklearn.manifold import TSNE
 from sklearn import manifold
 from pydiffmap import diffusion_map
 
+from ggml_ot.plot._constants import EMB_DISPLAY, EMB_LABELTYPE, PALETTE_LABELTYPE
 from ggml_ot.plot._utils import savefig_or_show
 from ggml_ot.settings import settings
 
@@ -25,19 +26,20 @@ def emb(
     distances,
     labels,
     *,
-    method="umap",
+    method=None,
     precomputed_emb=None,
     symbols=None,
     ax=None,
     cluster_ID=None,
-    title="Embedding",
-    cmap="Set2",
+    title=None,
+    cmap=None,
     legend="auto",
     s=200,
     hue_order=None,
     annotation=None,
     linewidth=0.02,
     annotation_image_path=None,
+    label_type: str = "categorical",
     return_embedding: bool = False,
     show: bool | None = None,
     save: str | bool | None = None,
@@ -51,10 +53,10 @@ def emb(
         Distance matrix of shape ``(n_samples, n_samples)``.
     labels : array-like
         Class labels used for colouring the points.
-    method : str, default ``"umap"``
+    method : str or None, default None
         Dimensionality-reduction method.
         One of ``"umap"``, ``"tsne"``, ``"diffusion"``,
-        ``"fast_diffusion"``, ``"mds"``.
+        ``"fast_diffusion"``, ``"mds"``. When ``None``, defaults to ``"umap"``.
     precomputed_emb : array-like or None, default None
         Precomputed 2-D coordinates of shape ``(n_samples, 2)``.  When
         provided, *method* is ignored.
@@ -64,10 +66,12 @@ def emb(
         Axes to draw on.  A new figure is created when ``None``.
     cluster_ID : array-like of bool or None, default None
         Flags indicating centroid / medoid / representative points.
-    title : str or None, default ``"Embedding"``
-        Plot title.
-    cmap : str, dict, or colormap, default ``"Set2"``
-        Colour palette for the scatter plot.
+    title : str or None, default None
+        Subplot title. ``None`` resolves to ``"Embedding (<method>)"``
+        using the resolved method (e.g. ``"Embedding (UMAP)"``,
+        ``"Embedding (Diffusion)"``). Pass an empty string to suppress.
+    cmap : str, dict, colormap, or None, default None
+        Colour palette for the scatter plot. ``None`` falls back to ``"Set2"``.
     legend : str, default ``"auto"``
         Legend placement.  One of ``"auto"``, ``"Side"``/``"right"``,
         ``"left"``, ``"Top"``, ``"Bottom"``, ``"Inside"``, or ``False``.
@@ -81,6 +85,9 @@ def emb(
         Edge width of scatter markers.
     annotation_image_path : array-like of str or None, default None
         Image paths to overlay on the plot.
+    label_type : {"categorical"}, default ``"categorical"``
+        How to colour the scatter (discrete palette). Only ``"categorical"``
+        is supported in this stable release.
     return_embedding : bool, default False
         If ``True``, return ``(ax, embedding)`` regardless of ``show``.
     show : bool or None, default None
@@ -112,7 +119,14 @@ def emb(
     UMAP, t-SNE, and MDS use ``ggml_ot.settings.random_seed`` for
     reproducibility. Set it to ``None`` for nondeterministic embeddings.
     """
+    if method is None:
+        method = EMB_LABELTYPE[label_type]
+    if title is None:
+        method_display = EMB_DISPLAY.get(method, "")
+        title = f"Embedding ({method_display})" if method_display else "Embedding"
+
     embedding = precomputed_emb if precomputed_emb is not None else _compute_embedding(distances, method, labels=labels)
+
     df, type_to_size = _create_dataframe(embedding, labels, symbols, annotation, cluster_ID, annotation_image_path)
 
     # Determine legend handling
@@ -125,6 +139,8 @@ def emb(
         figsize = (30, 7) if annotation_image_path is not None else (5, 5)
         _, ax = plt.subplots(figsize=figsize)
 
+    palette = cmap if cmap is not None else PALETTE_LABELTYPE[label_type]
+
     sns.scatterplot(
         df,
         x="x",
@@ -134,11 +150,11 @@ def emb(
         s=s,
         linewidth=linewidth,
         hue="Classes" if labels is not None else None,
-        style="Condition" if symbols is not None else None,
+        style="Split" if symbols is not None else None,
         size="Type" if cluster_ID is not None else None,
         sizes=type_to_size if cluster_ID is not None else None,
         ax=ax,
-        palette=cmap,
+        palette=palette,
         legend=legend,
         hue_order=hue_order,
     )
@@ -150,15 +166,15 @@ def emb(
     ax.yaxis.set_visible(False)
 
     if position_legend == "Side" or position_legend == "right":
-        sns.move_legend(ax, "upper left", bbox_to_anchor=(1.02, 1), frameon=False)
+        _move_legend(ax, "upper left", bbox_to_anchor=(1.02, 1), frameon=False)
     elif position_legend == "left":
-        sns.move_legend(ax, "upper right", bbox_to_anchor=(-0.02, 1), frameon=False)
+        _move_legend(ax, "upper right", bbox_to_anchor=(-0.02, 1), frameon=False)
     elif position_legend == "Top":
-        sns.move_legend(ax, "lower center", bbox_to_anchor=(0.5, 1.05), ncol=3, frameon=True)
+        _move_legend(ax, "lower center", bbox_to_anchor=(0.5, 1.05), ncol=3, frameon=True)
     elif position_legend == "Bottom":
-        sns.move_legend(ax, "upper center", bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=True)
+        _move_legend(ax, "upper center", bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=True)
     elif position_legend == "Inside":
-        sns.move_legend(ax, "best", frameon=True)
+        _move_legend(ax, "best", frameon=True)
 
     if title is not None:
         ax.set_title(title)
@@ -238,7 +254,7 @@ def _compute_embedding(distances, method, labels=None):
 def _create_dataframe(emb, colors, symbols, annotation, cluster_ID, annotation_image_path):
     df = pd.DataFrame(emb, columns=["x", "y"])
     df["Classes"] = colors
-    df["Condition"] = symbols
+    df["Split"] = symbols
     df["annotation"] = annotation
     df["Type"] = None if cluster_ID is None else ["Cluster" if is_cluster else "Trial" for is_cluster in cluster_ID]
     type_to_size = {
@@ -276,13 +292,19 @@ def _estimate_n_neighbors(distances, labels=None):
 
 def _setup_legend(ax, position_legend):
     if position_legend == "Side":
-        sns.move_legend(ax, "upper left", bbox_to_anchor=(1.05, 1), frameon=True)
+        _move_legend(ax, "upper left", bbox_to_anchor=(1.05, 1), frameon=True)
     elif position_legend == "Top":
-        sns.move_legend(ax, "lower center", bbox_to_anchor=(0.5, 1.05), ncol=3, frameon=True)
+        _move_legend(ax, "lower center", bbox_to_anchor=(0.5, 1.05), ncol=3, frameon=True)
     elif position_legend == "Bottom":
-        sns.move_legend(ax, "upper center", bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=True)
+        _move_legend(ax, "upper center", bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=True)
     elif position_legend == "Inside":
-        sns.move_legend(ax, "best", frameon=True)
+        _move_legend(ax, "best", frameon=True)
+
+
+def _move_legend(ax, *args, **kwargs) -> None:
+    """Move the legend when one exists."""
+    if ax.get_legend() is not None:
+        sns.move_legend(ax, *args, **kwargs)
 
 
 def _add_image_overlays(ax, df, paths):

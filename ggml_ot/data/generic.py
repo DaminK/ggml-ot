@@ -1,6 +1,7 @@
 from __future__ import annotations
 import inspect
 from functools import update_wrapper
+from typing import Literal
 
 import numpy as np
 import torch
@@ -9,7 +10,7 @@ import copy
 
 from ggml_ot.distances import compute_OT
 from ggml_ot._utils._array import not_none, to_float32
-from ggml_ot.settings import settings
+from ggml_ot.data._labels import resolve_label_strings
 
 import warnings
 
@@ -17,13 +18,12 @@ import warnings
 class TripletDataset(Dataset):
     """Dataset to train GGML based on array data.
 
-    This class stores a collection of distributions ("supports") and produces triplets
-    (i, j, k) of relative relationships where i and j are from the same class and
-    k is from a different class. These triplets are used to train GGML such that distributions
-    i and j are closer to each other than j and k by some margin alpha.
-
-    This class exposes the dataset to the standardized interfaces used by :meth:`ggml_ot.train`, :meth:`ggml_ot.tune`,
-    :meth:`ggml_ot.test` and :meth:`ggml_ot.train_test`.
+    This class stores a collection of distributions ("supports") and exposes the
+    standardized interfaces used by :meth:`ggml_ot.train`, :meth:`ggml_ot.tune`,
+    :meth:`ggml_ot.test`, and :meth:`ggml_ot.train_test`. Triplets ``(i, j, k)`` —
+    where pair ``(i, j)`` should sit closer than pair ``(j, k)`` by margin ``alpha`` —
+    are built per batch by :func:`ggml_ot.optimization.triplets.create_triplets`
+    using categorical (equality-based) labels.
 
     Parameters
     ----------
@@ -31,7 +31,7 @@ class TripletDataset(Dataset):
         Sequence of per-distribution supports. Each element is an array of points
         (for empirical distributions) or component means (for GMM-style representations).
     distribution_labels : Sequence[int] | np.ndarray
-        Integer labels identifying the class/group of each distribution.
+        Labels identifying the class/group of each distribution.
     n_triplets : int, optional
         Number of triplets to generate per "anchor" distribution (default: 3).
     weights : Sequence[np.ndarray] | None, optional
@@ -44,11 +44,15 @@ class TripletDataset(Dataset):
         If True, indicates that all distributions share the same supports
         (e.g., identical component locations across distributions). This changes the
         __getitem__ return format and allows faster OT evaluation (default: False).
-
-    Notes
-    -----
-    - The class generates triplets by sampling t "positive" neighbors from the same
-      class and t "negative" neighbors from each different class for every distribution.
+    label_type : {"categorical"}, optional
+        Supervision mode for the distribution labels (default: ``"categorical"``).
+        Only ``"categorical"`` (nominal class labels with equality-based triplets)
+        is supported in this stable release; other values raise
+        :class:`NotImplementedError`.
+    distribution_labels_str : Sequence | np.ndarray | None, optional
+        Original per-distribution labels for display/annotation, stored as
+        strings. When ``None`` (default), derived by stringifying
+        ``distribution_labels``. Must align 1:1 with ``distribution_labels``.
 
     """
 
@@ -59,7 +63,10 @@ class TripletDataset(Dataset):
     "Stored per-distribution weights (if provided)."
 
     distribution_labels = None
-    "Integer class labels for each distribution."
+    "Per-distribution labels, integer-encoded."
+
+    label_type: str = "categorical"
+    "Label supervision mode; only ``'categorical'`` is supported."
 
     # triplets: list[tuple[int, int, int]] = None
     "Generated triplet index tuples used for training."
@@ -82,6 +89,8 @@ class TripletDataset(Dataset):
         weights=None,
         covariances=None,
         identical_supports=False,
+        label_type: Literal["categorical"] = "categorical",
+        distribution_labels_str=None,
         **kwargs,
     ):
         self.identical_supports = identical_supports
@@ -91,7 +100,15 @@ class TripletDataset(Dataset):
         self.covariances = to_float32(covariances, backend="torch")
         self.weights = to_float32(weights, backend="torch")
 
-        self.distribution_labels = distribution_labels
+        if label_type != "categorical":
+            raise NotImplementedError(
+                f"label_type={label_type!r} is not supported in this stable release; "
+                "only label_type='categorical' is available."
+            )
+        self.label_type = label_type
+        self.distribution_labels = np.asarray(distribution_labels)
+        self._distribution_labels_str = resolve_label_strings(distribution_labels_str, self.distribution_labels)
+
         # self.triplets = create_triplets(distribution_labels, n_triplets)
         self._n_triplets = n_triplets
 
@@ -113,7 +130,13 @@ class TripletDataset(Dataset):
 
     @property
     def distribution_labels_str(self):
-        return self.distribution_labels
+        """Original per-distribution labels, stringified, for annotations/display."""
+        return self._distribution_labels_str
+
+    @property
+    def distribution_labels_plot(self):
+        """Per-distribution labels formatted for plotting (stringified for discrete legends)."""
+        return self.distribution_labels_str
 
     @property
     def map_A(self):
@@ -276,41 +299,58 @@ class TripletDataset(Dataset):
 
         return _validate_gmm(self, *args, **kwargs)
 
-    def _train_test_split(self, n_splits=10, train_size=0.8, test_size=None, validation_size=0):
-        """Generate stratified train-test(-validation) splits.
+    def _train_test_split(
+        self,
+        n_splits: int = 10,
+        train_size: float = 0.8,
+        test_size: float | None = None,
+        validation_size: float = 0,
+        split_strategy: Literal["auto", "shuffle", "stratified"] = "auto",
+    ):
+        """Generate train-test folds.
 
-        :param dataset: number of re-shuffling and splitting iterations, defaults to 10
-        :type dataset: ggml_ot.TripletDataset
-        :param n_splits: number of re-shuffling and splitting iterations, defaults to 10
-        :type n_splits: int, optional
-        :param train_size: proportion of the dataset to include in the train split, defaults to 0.8
-        :type train_size: float, optional
-        :param test_size: proportion of dataset to include in the test split, defaults to 1 - train_size
-        :type test_size: float, optional
-        :param validation_size: proportion of dataset to include in the validation split, defaults to 0
-        :type validation_size: float, optional
-        :return: indices of train, test data of each split
-        :rtype: array-like of tuples
+        Parameters
+        ----------
+        n_splits
+            Number of folds for ``"auto"`` / ``"shuffle"`` / ``"stratified"``.
+        train_size, test_size
+            Split proportions.
+        validation_size
+            Currently unimplemented.
+        split_strategy
+            ``"auto"`` (default): stratified if class sizes permit, else
+            shuffle. ``"shuffle"`` / ``"stratified"``: explicit sklearn
+            strategies.
+
+        Returns
+        -------
+        list[tuple[np.ndarray, np.ndarray]]
+            One ``(train_index, test_index)`` per fold.
         """
+        from ._split import _split_auto, _split_shuffle, _split_stratified
 
         if validation_size > 0:
             warnings.warn("Validation split not implemented yet")
 
-        if test_size is not None and round(train_size + test_size, 2) != 1.00:
-            train_size = 1.0 - test_size
+        labels = np.asarray(self.distribution_labels)
 
-        from sklearn.model_selection import StratifiedShuffleSplit
-
-        skf = StratifiedShuffleSplit(
-            n_splits=n_splits, test_size=test_size, train_size=train_size, random_state=settings.random_seed
-        )
-        return list(skf.split(np.zeros(len(self.distribution_labels)), self.distribution_labels))
+        if split_strategy == "auto":
+            return _split_auto(labels, n_splits, train_size, test_size)
+        if split_strategy == "shuffle":
+            return _split_shuffle(labels, n_splits, train_size, test_size)
+        if split_strategy == "stratified":
+            return _split_stratified(labels, n_splits, train_size, test_size)
+        raise ValueError(f"Unknown split_strategy: {split_strategy!r}")
 
     def _subset(self, indices):
         """Returns dataset subset for indices"""
-        split_Dataset = copy.deepcopy(self)
+        # Shallow copy: the per-distribution arrays are all reassigned to slices
+        # below, so we avoid cloning the full supports/covariances (and, for
+        # AnnData datasets, the whole AnnData) just to overwrite them.
+        split_Dataset = copy.copy(self)
 
         split_Dataset.distribution_labels = [self.distribution_labels[i] for i in indices]
+        split_Dataset._distribution_labels_str = self._distribution_labels_str[np.asarray(indices, dtype=int)]
         # split_Dataset.triplets = create_triplets(split_Dataset.distribution_labels, self._n_triplets)
         if not self.identical_supports:
             if not_none(self.supports):
@@ -413,11 +453,12 @@ class TripletDataset(Dataset):
 
             clustermap_embedding(
                 D.cpu() if isinstance(D, torch.Tensor) else D,
-                self.distribution_labels_str,
+                self.distribution_labels_plot,
                 symbols=self.symbols if (symbols is None and hasattr(self, "symbols")) else symbols,
                 legend=legend,
                 plot=plot_type if isinstance(plot_type, str) else "clustermap_embedding",
-                title=f"{ground_metric} ground metric" if isinstance(ground_metric, str) else "GGML",
+                title=(f"{ground_metric} ground metric" if isinstance(ground_metric, str) else "GGML"),
+                label_type=self.label_type,
                 show=show,
                 save=save,
             )

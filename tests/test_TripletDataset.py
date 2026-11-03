@@ -91,3 +91,111 @@ def test_getitem_identical_supports_contract():
     assert covariances.numel() == 0
     assert weights_one.shape == (6,)
     assert np.isscalar(label_one)
+
+
+# ---------------------------------------------------------------------------
+# Ordinal label support
+# ---------------------------------------------------------------------------
+
+
+def test_distribution_labels_plot_categorical_returns_strings():
+    ds = ggml_ot.data.from_synth(**get_synth_config(), show=False)
+    plot_labels = ds.distribution_labels_plot
+    assert plot_labels.dtype.kind in {"U", "O"}
+
+
+# ---------------------------------------------------------------------------
+# distribution_labels_str storage + subsetting (label streamline)
+# ---------------------------------------------------------------------------
+
+
+def _generic_dataset(labels, distribution_labels_str=None, seed=0):
+    """Minimal generic TripletDataset with one support per label."""
+    rng = np.random.default_rng(seed)
+    supports = [rng.normal(size=(5, 2)).astype(np.float32) for _ in labels]
+    return TripletDataset(
+        supports=supports,
+        distribution_labels=labels,
+        distribution_labels_str=distribution_labels_str,
+    )
+
+
+def test_generic_categorical_stores_stringified_labels():
+    """Without explicit strings, distribution_labels_str is the stringified labels."""
+    ds = _generic_dataset([0, 1, 0, 1])
+    assert list(ds.distribution_labels_str) == ["0", "1", "0", "1"]
+    assert len(ds.distribution_labels_str) == len(ds.distribution_labels)
+
+
+def test_generic_explicit_string_labels_preserved():
+    """Explicit distribution_labels_str is stored verbatim."""
+    ds = _generic_dataset([0, 1, 2], distribution_labels_str=["mild", "severe", "healthy"])
+    assert list(ds.distribution_labels_str) == ["mild", "severe", "healthy"]
+
+
+def test_distribution_labels_str_length_mismatch_raises():
+    with pytest.raises(ValueError, match="distribution_labels_str"):
+        _generic_dataset([0, 1, 2], distribution_labels_str=["a", "b"])
+
+
+def test_subset_preserves_label_array_alignment():
+    """_subset keeps distribution_labels / _str / _plot aligned with supports."""
+    ds = _generic_dataset(
+        [0, 1, 2, 0, 1, 2],
+        distribution_labels_str=["a", "b", "c", "a", "b", "c"],
+    )
+    sub = ds._subset([0, 2, 4])
+    assert len(sub.supports) == 3
+    assert len(sub.distribution_labels) == 3
+    assert len(sub.distribution_labels_str) == 3
+    assert len(sub.distribution_labels_plot) == 3
+    assert list(sub.distribution_labels_str) == ["a", "c", "b"]
+
+
+def test_anndata_categorical_subset_label_alignment():
+    """Categorical AnnData subset keeps every per-distribution label array aligned.
+
+    Regression test for the subset/plot length mismatch: distribution_labels_str
+    was recomputed from the full AnnData and diverged from a subset's supports.
+    """
+    adata = ggml_ot.data.synth_anndata(distribution_size=20)
+    ds = ggml_ot.from_anndata(adata, n_cells=10)
+    assert ds.label_type == "categorical"
+
+    sub = ds._subset(list(range(len(ds.distribution_labels) - 1)))  # drop one distribution
+    n = len(sub.supports)
+    assert n == len(sub.distribution_labels) == len(sub.distribution_labels_str) == len(sub.distribution_labels_plot)
+
+
+def test_anndata_categorical_labels_int_ids_str_keeps_original():
+    """Categorical distribution_labels are int IDs; distribution_labels_str keeps obs values."""
+    adata = ggml_ot.data.synth_anndata(distribution_size=20)
+    ds = ggml_ot.from_anndata(adata, n_cells=10)
+    assert np.issubdtype(np.asarray(ds.distribution_labels).dtype, np.integer)
+    obs_values = set(adata.obs["patient_group"].astype(str))
+    assert set(ds.distribution_labels_str).issubset(obs_values)
+
+
+@pytest.mark.parametrize("n_samples", [7, 10, 23])
+def test_split_complementary_fractions_cover_all_samples(n_samples):
+    """train_size + test_size == 1 must partition every sample (no dropped/duplicated index).
+
+    The fractions collapse to a single one so sklearn derives the integer
+    complement; independently rounded counts could otherwise drop a sample.
+    """
+    from ggml_ot.data._split import _split_shuffle
+
+    labels = np.zeros(n_samples)
+    train_idx, test_idx = _split_shuffle(labels, n_splits=1, train_size=0.7, test_size=0.3)[0]
+    assert set(train_idx) | set(test_idx) == set(range(n_samples))
+    assert set(train_idx).isdisjoint(test_idx)
+
+
+def test_split_partial_fractions_leave_holdout():
+    """train_size + test_size < 1 keeps a genuine holdout instead of being normalized away."""
+    from ggml_ot.data._split import _split_shuffle
+
+    labels = np.zeros(20)
+    train_idx, test_idx = _split_shuffle(labels, n_splits=1, train_size=0.5, test_size=0.3)[0]
+    assert len(train_idx) + len(test_idx) < 20
+    assert set(train_idx).isdisjoint(test_idx)

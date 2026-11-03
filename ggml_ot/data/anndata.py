@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Literal
+
 import numpy as np
 import scipy.sparse as sp
 import warnings
@@ -8,11 +12,12 @@ from ggml_ot._utils._docs import get_defaults
 from ggml_ot.gmm._anndata_dataset_interface import gmm_from_anndata as _gmm_from_anndata
 from ggml_ot._utils._anndata_utils import (
     extract_centroids,
+    get_obs_matrix,
     label_index_map,
     patient_labels,
+    store_ggml_dataset,
     validate_anndata_inputs,
 )
-from ggml_ot.data._parameter_setup import set_preprocessed
 from ggml_ot._utils._weights import normalize_weights
 
 
@@ -24,7 +29,8 @@ class AnnData_TripletDataset(TripletDataset):
 
     By default, it captures the cells of a patient as a empirical distribution in the gene space of the AnnData (`.X`).
     Using the ``use_rep`` and/or ``group_by`` parameter, you can reduce the distribution to only cell_subtypes
-    and/or low dimensional gene representations.
+    and/or low dimensional gene representations. Using the ``layer`` parameter, you can use a different layer
+    of the gene space (e.g. raw counts) instead of `.X`.
 
     This class exposes the dataset to the standardized interfaces used by :meth:`ggml_ot.train`, :meth:`ggml_ot.tune`,
     :meth:`ggml_ot.test` and :meth:`ggml_ot.train_test`.
@@ -46,7 +52,10 @@ class AnnData_TripletDataset(TripletDataset):
         Optional column in ``adata.obs`` to group cells and learn a ground metric between cell groups instead (default: None).
     use_rep : None | str, optional
         If provided, uses ``adata.obsm[use_rep]`` as the cell embedding representation;
-        otherwise the raw .X matrix is used (default: None).
+        otherwise the raw .X matrix is used. As in scanpy, ``"X"`` refers to ``.X`` (default: None).
+    layer : None | str, optional
+        If provided, uses ``adata.layers[layer]`` instead of ``.X`` as the gene space of the cells.
+        Mutually exclusive with ``use_rep`` (default: None).
     gmm_key : None | str, optional
         If provided, loads a previously fitted GMM representation from ``adata.uns[gmm_key]`` (default: None).
     sample_gmm : bool, optional
@@ -56,6 +65,11 @@ class AnnData_TripletDataset(TripletDataset):
         Controls how per-distribution GMM weights are reconstructed when ``gmm_key`` is provided.
         ``"auto"`` tries stored weights first, then hard assignments predicted from the stored GMM
         parameters (default: "auto").
+    label_type : {"categorical"}, optional
+        Supervision mode for the patient labels read from
+        ``adata.obs[label_col]`` (default: ``"categorical"``). Only
+        ``"categorical"`` is supported in this stable release; other values
+        raise :class:`NotImplementedError`.
 
     Notes
     -----
@@ -88,19 +102,28 @@ class AnnData_TripletDataset(TripletDataset):
     def __init__(
         self,
         adata,
+        *,
         patient_col="sample",
         label_col="patient_group",
         n_cells=250,
         n_triplets=3,
         use_rep=None,
+        layer=None,
         group_by=None,
         gmm_key=None,
         sample_gmm=False,
         gmm_weights_source="auto",
+        label_type: Literal["categorical"] = "categorical",
     ):
         kwargs = {**locals()}
         for key in ["self", "adata", "__class__"]:
             kwargs.pop(key)
+
+        if kwargs["label_type"] != "categorical":
+            raise NotImplementedError(
+                f"label_type={kwargs['label_type']!r} is not supported in this stable release; "
+                "only label_type='categorical' is available."
+            )
 
         if settings.restore_adata_params:
             defaults = get_defaults(type(self).__init__)
@@ -108,6 +131,8 @@ class AnnData_TripletDataset(TripletDataset):
                 stored = dict(adata.uns["ggml_params"])
                 warning_raised = False
                 for param, default_value in defaults.items():
+                    if param in ("use_rep", "layer") and (kwargs["use_rep"], kwargs["layer"]) != (None, None):
+                        continue
                     if (
                         param in kwargs
                         and kwargs[param] == default_value
@@ -121,25 +146,34 @@ class AnnData_TripletDataset(TripletDataset):
                             )
                             warning_raised = True
 
+        # scanpy convention: use_rep="X" refers to .X
+        if kwargs["use_rep"] == "X":
+            if kwargs["layer"] is not None:
+                raise ValueError(f"Only one of use_rep (X) and layer ({kwargs['layer']}) can be provided.")
+            kwargs["use_rep"] = None
+
         adata.uns["ggml_params"] = kwargs
         adata = _process_anndata(
             adata,
             patient_col=kwargs["patient_col"],
             label_col=kwargs["label_col"],
             use_rep=kwargs["use_rep"],
+            layer=kwargs["layer"],
             group_by=kwargs["group_by"],
             gmm_key=kwargs["gmm_key"],
             n_cells=kwargs["n_cells"],
             sample_gmm=kwargs["sample_gmm"],
             gmm_weights_source=kwargs["gmm_weights_source"],
+            label_type=kwargs["label_type"],
         )
 
-        super().__init__(**adata.uns["ggml_preprocessed"], n_triplets=kwargs["n_triplets"])
+        super().__init__(**adata.uns["ggml_dataset"], n_triplets=kwargs["n_triplets"])
         self.adata = adata
-        self.index_mask = adata.uns["ggml_preprocessed"]["index_mask"]
+        self.index_mask = adata.uns["ggml_dataset"]["index_mask"]
         self.label_col = kwargs["label_col"]
         self.patient_col = kwargs["patient_col"]
-        self.use_rep = adata.uns["ggml_preprocessed"]["use_rep"]
+        self.use_rep = adata.uns["ggml_dataset"]["use_rep"]
+        self.layer = adata.uns["ggml_dataset"]["layer"]
         self.group_by = kwargs["group_by"]
         if "W_ggml" in self.adata.uns:
             self._map_A = self.adata.uns["W_ggml"]
@@ -151,12 +185,6 @@ class AnnData_TripletDataset(TripletDataset):
             [np.full(len(d), label) for label, d in zip(self.distribution_labels_str, self.supports)]
         )
         return points_labels
-
-    @property
-    def distribution_labels_str(self):
-        "Patient group labels per patient-level distribution as string, taken from ``adata.obs[label_col]``."
-        string_class_labels = np.unique(self.adata.obs[self.label_col])
-        return string_class_labels[self.distribution_labels]
 
     @property
     def patient_labels(self):
@@ -183,19 +211,24 @@ class AnnData_TripletDataset(TripletDataset):
         self.adata.uns["W_ggml"] = map_A
 
         if map_A is not None:
+            self.adata.obsm["X_ggml"] = get_obs_matrix(self.adata, self.use_rep, self.layer) @ np.transpose(map_A)
             if self.use_rep is None:
-                self.adata.obsm["X_ggml"] = self.adata.X @ np.transpose(map_A)
                 self.adata.varm["W_ggml"] = np.transpose(map_A)
+            elif self.use_rep in self.adata.varm.keys():
+                self.adata.varm["W_ggml"] = self.adata.varm[self.use_rep] @ np.transpose(map_A)
+            elif "pca" in self.use_rep and "PCs" in self.adata.varm.keys():
+                self.adata.varm["W_ggml"] = self.adata.varm["PCs"] @ np.transpose(map_A)
             else:
-                self.adata.obsm["X_ggml"] = self.adata.obsm[self.use_rep] @ np.transpose(map_A)
-                if self.use_rep in self.adata.varm.keys():
-                    self.adata.varm["W_ggml"] = self.adata.varm[self.use_rep] @ np.transpose(map_A)
-                elif "pca" in self.use_rep and "PCs" in self.adata.varm.keys():
-                    self.adata.varm["W_ggml"] = self.adata.varm["PCs"] @ np.transpose(map_A)
-                else:
-                    warnings.warn(
-                        f"Cannot project W_ggml back to gene space, since use_rep {self.use_rep} has no inverse transform (no .varm[{self.use_rep}]). GGML components only stored in .uns, and not in .varm"
-                    )
+                warnings.warn(
+                    f"Cannot project W_ggml back to gene space, since use_rep {self.use_rep} has no inverse transform (no .varm[{self.use_rep}]). GGML components only stored in .uns, and not in .varm"
+                )
+
+    def _subset(self, indices):
+        sub = super()._subset(indices)
+        # sub shares the parent's AnnData (shallow copy). Reset the metric via the
+        # private attr, not the setter, which would write into that shared AnnData.
+        sub._map_A = None
+        return sub
 
     def to_anndata(self):
         "Returns the AnnData of the dataset object."
@@ -493,86 +526,119 @@ InitDefaults = AnnData_TripletDataset.__init__.__kwdefaults__
 # ---------------------------------------------------------------------------
 
 
-def _centroids_from_anndata(adata, patient_col, label_col, use_rep, group_by):
+def _patient_label_extractor(adata, *, label_col: str, label_type: str):
+    """Return a callable mapping a single patient AnnData view to its label.
+
+    Centralises the categorical label encoding for the per-patient loop in both
+    ``_centroids_from_anndata`` and ``_empirical_from_anndata``. The callable
+    returns ``(label, label_str)``: ``label`` is the encoded int training label,
+    ``label_str`` is the original ``adata.obs[label_col]`` value as a string.
+    """
+    _, label_to_idx = label_index_map(adata, label_col)
+
+    def _label_of(patient_adata, patient):
+        labels = np.unique(patient_adata.obs[label_col].to_numpy())
+        if len(labels) > 1:
+            warnings.warn(f"Cells from one sample {patient} contain multiple labels {label_col}={labels}")
+        return label_to_idx[labels[0]], str(labels[0])
+
+    return _label_of
+
+
+def _centroids_from_anndata(adata, patient_col, label_col, use_rep, layer, group_by, label_type):
     if group_by not in adata.obs:
         raise ValueError(f"group_by {group_by} not in adata.obs columns {adata.obs.columns}")
 
-    supports = extract_centroids(adata, group_by, use_rep)
+    supports = extract_centroids(adata, group_by, use_rep, layer)
     ordered_components = np.unique(adata.obs[group_by].to_numpy())
-    _, label_to_idx = label_index_map(adata, label_col)
+    label_of = _patient_label_extractor(adata, label_col=label_col, label_type=label_type)
 
     weights = []
     labels = []
+    labels_str = []
     for patient in patient_labels(adata, patient_col):
         patient_adata = adata[adata.obs[patient_col] == patient]
-        label = np.unique(patient_adata.obs[label_col].to_numpy())
-        if len(label) > 1:
-            warnings.warn(f"Cells from one sample {patient_col}={patient} contain multiple labels {label_col}={label}")
 
         component_counts = np.array(
             [len(patient_adata[patient_adata.obs[group_by] == c]) for c in ordered_components], dtype=np.float64
         )
         weights.append(normalize_weights(component_counts))
-        labels.append(label_to_idx[label[0]])
+        label, label_str = label_of(patient_adata, patient)
+        labels.append(label)
+        labels_str.append(label_str)
 
-    set_preprocessed(
+    store_ggml_dataset(
         adata,
         supports=np.asarray(supports, dtype="f"),
         covariances=None,
         weights=weights,
         distribution_labels=labels,
+        distribution_labels_str=labels_str,
         identical_supports=True,
         use_rep=use_rep,
+        label_type=label_type,
+        layer=layer,
     )
     return adata
 
 
-def _empirical_from_anndata(adata, patient_col, label_col, use_rep, n_cells):
+def _empirical_from_anndata(adata, patient_col, label_col, use_rep, layer, n_cells, label_type):
+    x = get_obs_matrix(adata, use_rep, layer)
     supports = []
     sampled_cells_mask = np.zeros(adata.n_obs, dtype=bool)
-    _, label_to_idx = label_index_map(adata, label_col)
+    label_of = _patient_label_extractor(adata, label_col=label_col, label_type=label_type)
     labels = []
+    labels_str = []
 
     for patient in patient_labels(adata, patient_col):
         patient_indices = np.where(adata.obs[patient_col] == patient)[0]
         patient_adata = adata[patient_indices]
-        label = np.unique(patient_adata.obs[label_col].to_numpy())
-        if len(label) > 1:
-            warnings.warn(f"Cells from one sample {patient_col}={patient} contain multiple labels {label_col}={label}")
 
         if patient_adata.n_obs >= n_cells:
             sampled_idx = settings.numpy_generator.choice(patient_indices, size=n_cells, replace=False)
             sampled_cells_mask[sampled_idx] = True
 
-            if use_rep is None:
-                patient_points = adata.X[sampled_idx, :]
-                if sp.issparse(patient_points):
-                    patient_points = patient_points.toarray()
-            else:
-                patient_points = adata.obsm[use_rep][sampled_idx]
+            patient_points = x[sampled_idx]
+            if sp.issparse(patient_points):
+                patient_points = patient_points.toarray()
 
             supports.append(np.asarray(patient_points, dtype="f"))
-            labels.append(label_to_idx[label[0]])
+            label, label_str = label_of(patient_adata, patient)
+            labels.append(label)
+            labels_str.append(label_str)
         else:
             print(f"Skip {patient} with {patient_adata.n_obs} cells (< n_cell = {n_cells})")
 
-    set_preprocessed(
+    store_ggml_dataset(
         adata,
         supports=supports,
         covariances=None,
         weights=None,
         distribution_labels=labels,
+        distribution_labels_str=labels_str,
         identical_supports=False,
         use_rep=use_rep,
         index_mask=sampled_cells_mask,
+        label_type=label_type,
+        layer=layer,
     )
     return adata
 
 
 def _process_anndata(
-    adata, patient_col, label_col, use_rep, group_by, gmm_key, n_cells, sample_gmm, gmm_weights_source
+    adata,
+    patient_col,
+    label_col,
+    use_rep,
+    layer,
+    group_by,
+    gmm_key,
+    n_cells,
+    sample_gmm,
+    gmm_weights_source,
+    label_type,
 ):
-    validate_anndata_inputs(adata, patient_col, label_col, use_rep)
+    validate_anndata_inputs(adata, patient_col, label_col, use_rep, layer)
 
     if gmm_key is not None:
         # ``gmm_key`` takes precedence: we are loading an already-fitted representation.
@@ -582,13 +648,13 @@ def _process_anndata(
                 "Set group_by to None to avoid this warning, or set gmm_key to None to use group_by."
             )
         return _gmm_from_anndata(
-            adata, patient_col, label_col, use_rep, gmm_key, n_cells, sample_gmm, gmm_weights_source
+            adata, patient_col, label_col, use_rep, gmm_key, n_cells, sample_gmm, gmm_weights_source, layer=layer
         )
 
     if gmm_weights_source != "auto":
         raise ValueError("gmm_weights_source is only supported when gmm_key is provided.")
 
     if group_by is not None:
-        return _centroids_from_anndata(adata, patient_col, label_col, use_rep, group_by)
+        return _centroids_from_anndata(adata, patient_col, label_col, use_rep, layer, group_by, label_type)
 
-    return _empirical_from_anndata(adata, patient_col, label_col, use_rep, n_cells)
+    return _empirical_from_anndata(adata, patient_col, label_col, use_rep, layer, n_cells, label_type)

@@ -11,7 +11,6 @@ This module exposes:
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING, Literal
 from dataclasses import asdict
 
@@ -36,15 +35,6 @@ from ggml_ot.optimization.regularization import regularizer_loss, regularizer_lo
 
 if TYPE_CHECKING:
     from ggml_ot.data import AnnData_TripletDataset, TripletDataset
-
-
-def _warn_emd2_cpu_bound_on_cuda() -> None:
-    """Warn that exact EMD2 OT solves are CPU-bound even when using CUDA."""
-    if settings.device.type == "cuda":
-        warnings.warn(
-            "Exact EMD2 solver is CPU-bound; no GPU acceleration is used for OT solves.",
-            UserWarning,
-        )
 
 
 def train_emd2(
@@ -96,7 +86,7 @@ def train_emd2(
         device=settings.device,
     )
 
-    _warn_emd2_cpu_bound_on_cuda()
+    _notify_emd2_cpu_bound_on_cuda()
 
     ggml_params = GGMLParams(alpha=alpha, n_comps=n_comps)
     reg_params = RegularizationParams(reg=reg, reg_type=reg_type)
@@ -313,7 +303,7 @@ def train_gmm(
         ggml_backend = batch_triplet_loss_sinkhorn
     else:
         # Exact EMD2-based training route
-        _warn_emd2_cpu_bound_on_cuda()
+        _notify_emd2_cpu_bound_on_cuda()
         ggml_backend = batch_triplet_loss_emd2
 
     # Bures-specific params
@@ -471,7 +461,7 @@ def train(
         ggml_backend = batch_triplet_loss_sinkhorn
     else:
         # Exact EMD2-based training route
-        _warn_emd2_cpu_bound_on_cuda()
+        _notify_emd2_cpu_bound_on_cuda()
         ggml_backend = batch_triplet_loss_emd2
 
     if diag_bures_approx:
@@ -581,3 +571,11 @@ def train_history(
         eps=eps,
         **kwargs,
     )
+
+
+def _notify_emd2_cpu_bound_on_cuda() -> None:
+    """Print a ``[ggml_ot]`` notice that exact EMD2 OT solves are CPU-bound on CUDA."""
+    if settings.device.type == "cuda":
+        print(
+            "[ggml_ot] Exact EMD2 solver is CPU-bound, to leverage CUDA use Sinkhorn solver (pass parameter entropic_reg > 0)."
+        )

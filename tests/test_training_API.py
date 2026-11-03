@@ -158,21 +158,24 @@ def test_train_gmm_should_forward_squared_ground_cost_to_ot_params(monkeypatch):
     assert captured["ot_params"].squared_ground_cost is False
 
 
-def test_train_emd2_warns_for_cuda_emd2(monkeypatch):
-    """Exact EMD2 should warn when CUDA is selected as OT solve is CPU-bound."""
+def test_train_emd2_notifies_for_cuda_emd2(monkeypatch, capsys):
+    """Exact EMD2 should emit a [ggml_ot] notice on CUDA (OT solve is CPU-bound)."""
     ds = ggml_ot.data.from_synth(**get_synth_config(), show=False)
     monkeypatch.setattr(interface_mod.settings, "_device", torch.device("cuda:0"), raising=False)
     monkeypatch.setattr(interface_mod, "_ggml_generic", lambda **kwargs: (np.eye(2), 0.1))
 
-    with pytest.warns(UserWarning, match="CPU-bound"):
-        interface_mod.train_emd2(
-            dataset=ds,
-            alpha=10.0,
-            reg_type="fro",
-            n_comps=2,
-            plot_iter=0,
-            max_iter=1,
-        )
+    interface_mod.train_emd2(
+        dataset=ds,
+        alpha=10.0,
+        reg_type="fro",
+        n_comps=2,
+        plot_iter=0,
+        max_iter=1,
+    )
+
+    out = capsys.readouterr().out
+    assert "[ggml_ot]" in out
+    assert "CPU-bound" in out
 
 
 @pytest.mark.parametrize(

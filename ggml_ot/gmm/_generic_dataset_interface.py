@@ -95,7 +95,7 @@ def _store_gmm_in_dataset(
     dataset,
     *,
     fit_outputs: dict,
-    covariance_type: Literal["diag", "full"],
+    covariance_type: Literal["diag", "full", "lowrank"],
     component_sharing: Literal["global", "sample_specific"],
     distribution_labels: np.ndarray,
 ):

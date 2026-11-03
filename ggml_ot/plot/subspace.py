@@ -19,7 +19,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patheffects as path_effects
-from anndata import AnnData
 from matplotlib.patches import Ellipse
 from matplotlib.lines import Line2D
 
@@ -1301,15 +1300,9 @@ def latent_gmm(
 
 
 def _resolve_latent_gmm_input(data, gmm_key: str | None) -> tuple:
-    from ggml_ot.gene._gmm_summary import resolve_gmm_key
-    from ggml_ot.gene._grouping import _resolve_adata
+    from ggml_ot.gene._gmm_summary import _resolve_adata_and_gmm_key
 
-    adata = _resolve_adata(data)
-    if isinstance(data, AnnData):
-        use_rep = adata.uns.get("ggml_params", {}).get("use_rep")
-    else:
-        use_rep = getattr(data, "use_rep", None)
-    return adata, resolve_gmm_key(adata, gmm_key, use_rep)
+    return _resolve_adata_and_gmm_key(data, gmm_key)
 
 
 def _validate_dims(*, dims: tuple[int, int], latent_dim: int) -> None:

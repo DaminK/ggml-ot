@@ -33,6 +33,24 @@ CELLxGENE interface
    data.load_cellxgene
 
 
+++++++++++++++++++++++++++
+Included example datasets
+++++++++++++++++++++++++++
+
+Curated CELLxGENE cohort shortcuts that download the data and return a
+ready-to-train :class:`~ggml_ot.data.AnnData_TripletDataset`. See
+:doc:`../references` for the source publication of each cohort.
+
+.. autosummary::
+   :nosignatures:
+   :toctree: ../generated/
+
+   data.breastcancer
+   data.covid
+   data.myocardial_infarction
+   data.kidney_injury
+
+
 +++++++++++++++++++++++
 Generate synthetic data
 +++++++++++++++++++++++

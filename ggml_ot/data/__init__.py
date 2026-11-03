@@ -8,6 +8,8 @@ from .synthetic_gmm import synth_gmm_anndata, from_synth_gmm
 
 from .cellxgene import load_cellxgene
 
+from .datasets import breastcancer, covid, myocardial_infarction, kidney_injury
+
 __all__ = [
     "TripletDataset",
     "AnnData_TripletDataset",
@@ -16,4 +18,8 @@ __all__ = [
     "from_synth_gmm",
     "synth_anndata",
     "synth_gmm_anndata",
+    "breastcancer",
+    "covid",
+    "myocardial_infarction",
+    "kidney_injury",
 ]

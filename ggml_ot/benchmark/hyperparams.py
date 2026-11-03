@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ggml_ot.data import AnnData_TripletDataset, TripletDataset
 
+from ggml_ot.benchmark._metrics import TIE_BREAKS, _best_index_by_scoring, _resolve_default_scoring
 from ggml_ot.benchmark.evaluation import train_test
 
 
@@ -19,11 +20,13 @@ def tune(
     reg_type: str | list = ["fro"],
     n_comps: int | list = [2, 5],
     mi_reg: float | list | None = None,
+    scoring: list[str] | None = None,
     knn_k: int = 5,
     print_latex: bool = False,
     plot_contour: bool = True,
     verbose: bool = False,
     return_dataset: bool = False,
+    tie_break: str = "first",
     **kwargs,
 ):
     """Tune hyperparameters by performing a Grid Search and Cross-Validation.
@@ -52,9 +55,18 @@ def tune(
         (i.e. a GMM dataset). If not provided, the behavior is unchanged and the default from
         :meth:`ggml_ot.train_test`/training is used.
 
+    scoring
+        List of evaluation scores to compute on each test split. If ``None``,
+        defaults are resolved from the dataset label type as in
+        :meth:`ggml_ot.train_test`. In this stable release, categorical
+        datasets default to ``["knn", "ari"]``. The first metric is used to
+        select the best hyperparameter combination and the default tuning
+        contour value; displayed ties are broken by the second metric when
+        present.
+
     knn_k
-        Number of neighbors used for benchmark k-NN classification during each
-        train/test evaluation.
+        Number of neighbors used for benchmark k-NN classification during
+        each train/test evaluation.
 
     print_latex
         Whether to print the hyperparameter tuning results as a LaTeX table.
@@ -69,6 +81,12 @@ def tune(
         If False, returns a tuple containing the results of the hyperparameter tuning.
 
         If True, returns the dataset with the best performing ground metric assigned to `dataset.map_A`. If the dataset is of type `AnnData_TripletDataset`, the cells are projected into the learned gene subspace (`dataset.adata.obsm["X_ggml"]`) and the loadings of the gene subspace are stored in `dataset.adata.varm["W_ggml"]`.
+
+    tie_break
+        How to choose among hyperparameter combinations that tie on the scoring metrics
+        (for ``return_dataset`` and the contour plot): ``"first"`` takes the first in grid
+        order, ``"reg"`` the largest ``reg`` (then ``mi_reg``), ``"mi_reg"`` the largest
+        ``mi_reg`` (then ``reg``), ``"both"`` the largest log10 ``reg`` + log10 ``mi_reg``.
 
     **kwargs
         Additional arguments passed to :meth:`ggml_ot.train_test`.
@@ -86,6 +104,10 @@ def tune(
         If the dataset is of type `AnnData_TripletDataset`, the cells are projected into the learned gene subspace (`dataset.adata.obsm["X_ggml"]`) and the loadings of the gene subspace are stored in `dataset.adata.varm["W_ggml"]`.
 
     """
+    # Validate before the grid search so a typo does not fail only after training
+    if tie_break not in TIE_BREAKS:
+        raise ValueError(f"Unknown tie_break {tie_break!r}, expected one of {TIE_BREAKS}.")
+
     # Ensure all hyperparameters are lists
     if not isinstance(alpha, list) and not isinstance(alpha, np.ndarray):
         alpha = [alpha]
@@ -104,6 +126,10 @@ def tune(
             mi_reg = [mi_reg]
 
     # Change default values for train_test
+    scoring = _resolve_default_scoring(dataset, scoring)
+    best_score = scoring[0]
+    best_col = (best_score, "mean")
+
     kwargs.setdefault("plot_split", False)
     kwargs.setdefault("print_table", False)
     if kwargs.pop("print_table", False):
@@ -123,6 +149,7 @@ def tune(
                 reg_type=n,
                 n_comps=k,
                 return_dataset=False,
+                scoring=scoring,
                 knn_k=knn_k,
                 print_table=False,
                 verbose=verbose,
@@ -141,6 +168,7 @@ def tune(
                 n_comps=k,
                 mi_reg=mi,
                 return_dataset=False,
+                scoring=scoring,
                 knn_k=knn_k,
                 print_table=False,
                 verbose=verbose,
@@ -169,12 +197,20 @@ def tune(
     # Format and display results
     from ggml_ot.plot import contour_hyperparams, table
 
-    table(df_scores, style_performance=True, print_latex=print_latex, title="Hyperparameter tuning")
+    table(
+        df_scores,
+        best_metric=best_score,
+        scoring=scoring,
+        style_performance=True,
+        print_latex=print_latex,
+        title="Hyperparameter tuning",
+        highlight_epoch_time=False,
+    )
 
     # Compute best configuration when needed for contour plotting and/or return_dataset.
     best_index = None
     if plot_contour or return_dataset:
-        best_index = df_scores[("knn", "mean")].idxmax()
+        best_index = _best_index_by_scoring(df_scores, scoring, display_precision=2, tie_break=tie_break)
 
     # Plot hyperparameter tuning results over alpha and reg for best n_comps and reg_type
     if plot_contour:
@@ -187,7 +223,7 @@ def tune(
                 if mi_reg is None
                 else {"n_comps": best_index[0], "reg_type": best_index[1], "mi_reg": best_index[4]}
             ),
-            value_col=("knn", "mean"),
+            value_col=best_col,
             log_axis=True,
             levels=20,
         )

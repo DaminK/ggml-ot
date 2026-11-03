@@ -3,6 +3,7 @@
 [![PyPI Downloads](https://img.shields.io/pepy/dt/ggml-ot?logo=pypi)](https://pepy.tech/project/ggml-ot)
 [![Docs](https://app.readthedocs.org/projects/ggml-ot/badge/?version=latest)](https://ggml-ot.readthedocs.io)
 [![CI](https://github.com/DaminK/ggml-ot/actions/workflows/pytest.yml/badge.svg)](https://github.com/DaminK/ggml-ot/actions/workflows/pytest.yml)
+[![arXiv](https://img.shields.io/badge/arXiv-2506.15383-b31b1b.svg)](https://arxiv.org/abs/2506.15383)
 
 
 # ggml-ot: Supervised Optimal Transport
@@ -18,7 +19,7 @@ A common analysis on single-cell data is investigating genetic differences betwe
 **<p align="center"> Optimal Transport between Patients [^1] with: </p>**
 | GGML |  Euclidean Ground Metric | Cosine Ground Metric
 |:-----:|:-----:|:-----:|
-|![](docs/source/images/myocard_example/umap_ggml.png) | ![](docs/source/images/myocard_example/umap_euclidean.png) | ![](docs/source/images/myocard_example/umap_cosine.png)
+|![](https://raw.githubusercontent.com/DaminK/ggml-ot/main/docs/source/images/myocard_example/umap_ggml.png) | ![](https://raw.githubusercontent.com/DaminK/ggml-ot/main/docs/source/images/myocard_example/umap_euclidean.png) | ![](https://raw.githubusercontent.com/DaminK/ggml-ot/main/docs/source/images/myocard_example/umap_cosine.png)
 
 
 GGML uses the patient groups as distribution labels to learn a suitable ground metric that captures the patient groups under OT. It is weakly supervised and does not require any cell type annotation or filtering, allowing to investigate group-related biological processes (e.g. disease mechanism) in the learned gene subspaces, across known and unknown cell subtypes.
@@ -48,7 +49,7 @@ In this small example, we demonstrate how to train ggml-ot to perform Supervised
   dataset.train()
 ```
 
-![](docs/source/images/get_started/clustermap_emb.png)
+![](https://raw.githubusercontent.com/DaminK/ggml-ot/main/docs/source/images/get_started/clustermap_emb.png)
 <p align="center">Clustermap and Embedding of Patients with OT distances using the learned ground metric.<p\>
 
 
@@ -68,10 +69,10 @@ sc.pl.embedding(adata,basis="X_ggml",color=["patient_group",'CDH19','STAB1'],
                 gene_symbols="feature_name",use_raw=False,legend_loc='on data')
 ```
 
-![](docs/source/images/get_started/gene_ranking_ggml.png)
+![](https://raw.githubusercontent.com/DaminK/ggml-ot/main/docs/source/images/get_started/gene_ranking_ggml.png)
 <p align="center">Ranking of loadings in learned gene subspace<p\>
 
-![](docs/source/images/get_started/cell_emb_ggml.png)
+![](https://raw.githubusercontent.com/DaminK/ggml-ot/main/docs/source/images/get_started/cell_emb_ggml.png)
 <p align="center">Embedding of cells in learned gene subspace with 2 example marker genes from ranking W_ggml1<p\>
 
 

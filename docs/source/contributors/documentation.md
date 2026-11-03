@@ -63,6 +63,19 @@ make docs-strict
 
 `make docs-strict` runs `sphinx-build -W` which treats Sphinx warnings as errors, while `make docs` ignores warnings. To re-execute all tutorial notebooks during the build, you can use `make docs-with-nbsphinx`  (very slow, only for major changes).
 
+After removing or renaming public API objects, old pages can remain in
+`docs/source/generated/` and cause missing-object or orphan-page warnings.
+Run a clean rebuild to regenerate the API reference:
+
+```bash
+make clean
+make docs-strict
+```
+
+`make clean` removes the built docs and generated API pages, as well as test
+reports, coverage output, and Python caches. Sphinx recreates the API pages from
+the current autosummary entries and Python docstrings on the next build.
+
 For a quick local preview while editing, serve the built docs:
 
 ```bash

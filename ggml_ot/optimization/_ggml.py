@@ -23,7 +23,7 @@ from ggml_ot.optimization.params import (
     OptimizationParams,
     RegularizationParams,
 )
-from ggml_ot.optimization.triplets import _create_triplets
+from ggml_ot.optimization.triplets import create_triplets
 from ggml_ot.optimization._triplets import warn_empty_triplets
 
 
@@ -55,10 +55,15 @@ def _ggml_init(
             map_A.data *= dim**0.5
         else:
             torch.nn.init.xavier_uniform_(map_A)
-    elif strategy == "random":
+    elif strategy == "xavier":
         torch.nn.init.xavier_uniform_(map_A)
+    elif strategy == "random":
+        # i.i.d. standard normal entries: the scale is not tied to the dimensions
+        torch.nn.init.normal_(map_A, mean=0.0, std=1.0)
     else:
-        raise ValueError(f"Unknown init_strategy: {strategy!r}. Use 'orthonormal', 'orthogonal', or 'random'.")
+        raise ValueError(
+            f"Unknown init_strategy: {strategy!r}. Use 'orthonormal', 'orthogonal', 'xavier', or 'random'."
+        )
 
     map_A.requires_grad_(True)
     return map_A
@@ -105,7 +110,7 @@ def _ggml_generic(
 
         pbar = tqdm(dataloader, disable=1 - verbose)
         for batch_idx, (distr_points, distr_covs, distr_weights, distr_labels) in enumerate(pbar, start=1):
-            triplets_idx = _create_triplets(distr_labels)
+            triplets_idx = create_triplets(distr_labels, label_type=dataset.label_type)
             if warn_empty_triplets(triplets_idx, distr_labels, epoch=i, batch_idx=batch_idx):
                 continue
 

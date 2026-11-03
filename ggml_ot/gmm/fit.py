@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
+from dataclasses import replace
 from typing import Any, Literal
 
 import numpy as np
 import torch
 
 from ggml_ot import settings
+from ggml_ot._utils._anndata_utils import get_obs_matrix_key
 from ggml_ot._utils._validate import (
     sanitize_degenerate_sample_specific_gmm_components,
     validate_fit_inputs,
@@ -18,7 +21,9 @@ from ggml_ot._utils._weights import (
     normalize_weight_vector,
 )
 
+from ._anchored_fit import fit_anchored_sample_specific
 from ._anndata_dataset_interface import (
+    _extract_anchor_labels_from_anndata,
     _extract_fit_data_from_anndata,
     _extract_fitted_anndata_fields,
     _store_gmm_in_adata,
@@ -29,7 +34,7 @@ from ._generic_dataset_interface import (
     _extract_fit_data_from_dataset,
     _store_gmm_in_dataset,
 )
-from ._select_k_comps import parse_k_comps, run_k_selection
+from ._select_k_comps import parse_factor_rank, parse_k_comps, run_k_selection
 from ._sample_specific_fit import (
     build_padded_sample_specific_outputs,
     fit_sample_specific_models,
@@ -43,6 +48,127 @@ def _resolve_component_sharing(dataset, component_sharing: str) -> Literal["glob
     if component_sharing != "auto":
         raise ValueError("component_sharing must be 'global', 'sample_specific', or 'auto'.")
     return "global" if bool(dataset.identical_supports) else "sample_specific"
+
+
+def _warn_inert_anchored_params(
+    *,
+    k_selection_metric: str,
+    refit: str,
+    train_size: float,
+    n_init: int,
+    max_iter: int,
+    tol: float,
+    factor_rank,
+    component_sharing: str,
+) -> None:
+    """Warn that EM/k-selection parameters are ignored in anchored mode."""
+    inert = []
+    if k_selection_metric != "aic":
+        inert.append(f"k_selection_metric={k_selection_metric!r}")
+    if refit != "none":
+        inert.append(f"refit={refit!r}")
+    if float(train_size) != 0.5:
+        inert.append(f"train_size={train_size!r}")
+    if int(n_init) != 1:
+        inert.append(f"n_init={n_init!r}")
+    if int(max_iter) != 100:
+        inert.append(f"max_iter={max_iter!r}")
+    if float(tol) != 1e-3:
+        inert.append(f"tol={tol!r}")
+    if factor_rank is not None:
+        inert.append(f"factor_rank={factor_rank!r}")
+    if component_sharing not in {"auto", "sample_specific"}:
+        inert.append(f"component_sharing={component_sharing!r}")
+    if inert:
+        warnings.warn(
+            "Anchored GMM fitting (string k_comps) ignores EM/k-selection parameters; "
+            f"the following set values have no effect: {', '.join(inert)}. "
+            "Anchored mode always fits one closed-form Gaussian per cell type per distribution "
+            "(component_sharing='sample_specific').",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+def _fit_anchored_anndata(
+    dataset,
+    *,
+    gmm_key: str,
+    anchor_column: str,
+    covariance_mode: Literal["full", "diag", "adaptive"],
+    eps: float,
+    singularity_handling: Literal["guarded", "robust", "strict"],
+    verbose: bool,
+):
+    """Fit and persist a cell-type-anchored GMM on an AnnData-backed dataset."""
+    adata = dataset.adata
+    x, distribution_index, distribution_ids = _extract_fit_data_from_anndata(
+        adata,
+        use_rep=dataset.use_rep,
+        distribution_col=dataset.patient_col,
+    )
+    component_codes, category_names = _extract_anchor_labels_from_anndata(adata, column=anchor_column)
+
+    outputs = fit_anchored_sample_specific(
+        x=x,
+        distribution_index=distribution_index,
+        distribution_ids=distribution_ids,
+        component_codes=component_codes,
+        category_names=category_names,
+        covariance_mode=covariance_mode,
+        eps=eps,
+        singularity_handling=singularity_handling,
+        verbose=verbose,
+    )
+
+    store_type = str(outputs["storage_covariance_type"])
+    config = GMMFitConfig(
+        n_components=int(outputs["n_components"]),
+        covariance_type=store_type,
+        eps=eps,
+        singularity_handling=singularity_handling,
+    )
+    _store_gmm_in_adata(
+        adata=adata,
+        gmm_key=gmm_key,
+        component_sharing="sample_specific",
+        use_rep=dataset.use_rep,
+        covariance_type=store_type,
+        n_components=int(outputs["n_components"]),
+        distribution_n_components=np.asarray(outputs["distribution_n_components"], dtype=int),
+        fit_params=_fit_params_schema(config),
+        selection=None,
+        backend="native",
+        backend_metadata={"fit_indices_count": int(x.shape[0]), "refit": "full"},
+        model_payload=outputs["model_payload"],
+        distribution_weights=np.asarray(outputs["distribution_weights"], dtype=np.float64),
+        distribution_ids=distribution_ids,
+        hard_components=np.asarray(outputs["hard_components"]),
+        responsibilities=np.asarray(outputs["responsibilities"], dtype=np.float64),
+    )
+
+    # Anchored provenance and diagnostics, layered onto the canonical schema.
+    schema = adata.uns[gmm_key]
+    schema["component_definition"] = "cell_type"
+    schema["anchor_column"] = anchor_column
+    schema["anchored_covariance_mode"] = covariance_mode
+    schema["component_cell_types"] = [list(names) for names in outputs["component_cell_types"]]
+    schema["anchored_diagnostics"] = {
+        "adaptive_diag_fallback_count": int(outputs["adaptive_diag_fallback_count"]),
+        "degenerate_full_count": int(outputs["degenerate_full_count"]),
+        "n_unassigned_cells": int(outputs["n_unassigned_cells"]),
+    }
+
+    supports, covariances, weights, identical_supports = _extract_fitted_anndata_fields(dataset, gmm_key=gmm_key)
+    dataset.index_mask = np.ones(dataset.adata.n_obs, dtype=bool)
+    return _apply_gmm_fields_in_place(
+        dataset,
+        supports=supports,
+        covariances=covariances,
+        weights=weights,
+        identical_supports=identical_supports,
+        gmm_provenance="fit_gmm",
+    )
 
 
 def _select_fit_indices(
@@ -79,15 +205,32 @@ def _check_min_cells_per_distribution(
         )
 
 
+def _fit_params_schema(config: GMMFitConfig) -> dict[str, Any]:
+    """Fit hyperparameters persisted in the GMM schema."""
+    params: dict[str, Any] = {
+        "max_iter": int(config.max_iter),
+        "tol": float(config.tol),
+        "n_init": int(config.n_init),
+        "eps": float(config.eps),
+        "singularity_handling": str(config.singularity_handling),
+    }
+    if config.covariance_type == "lowrank":
+        params["factor_rank"] = int(config.factor_rank)
+        params["psi_floor"] = float(config.psi_floor)
+    return params
+
+
 def _build_fit_config(
     *,
     fixed_k: int | None,
-    covariance_type: Literal["diag", "full"],
+    covariance_type: Literal["diag", "full", "lowrank"],
     max_iter: int,
     tol: float,
     n_init: int,
     eps: float,
     singularity_handling: Literal["guarded", "robust", "strict"],
+    factor_rank: int | None,
+    psi_floor: float,
 ) -> GMMFitConfig:
     """Build backend fit config from public parameters."""
     return GMMFitConfig(
@@ -98,6 +241,8 @@ def _build_fit_config(
         n_init=n_init,
         eps=eps,
         singularity_handling=singularity_handling,
+        factor_rank=factor_rank,
+        psi_floor=psi_floor,
     )
 
 
@@ -139,6 +284,57 @@ def _run_global_fit(
     return hard_components, responsibilities, distribution_weights, model_payload
 
 
+def _run_kq_selection(
+    *,
+    config,
+    k_candidates: list[int] | None,
+    q_candidates: list[int] | None,
+    rng: np.random.Generator,
+    **kwargs,
+):
+    """Run K-selection, sweeping the global factor rank ``q`` when requested.
+
+    When ``q_candidates`` is given, K-selection is run once per candidate ``q``
+    on the *same* train/validation split, and the rank with the lowest aggregate
+    selection score is kept (held-out NLL / AIC / BIC, lower is better).
+    """
+    if q_candidates is None:
+        return run_k_selection(config=config, k_candidates=k_candidates, rng=rng, **kwargs)
+
+    # Score even when K is fixed; reuse one split across ranks for a fair comparison.
+    inner_k_candidates = k_candidates if k_candidates is not None else [int(config.n_components)]
+    rng_state = rng.bit_generator.state
+
+    best = None
+    best_score = np.inf
+    best_q: int | None = None
+    rank_scores: list[dict[str, float]] = []
+    for q in q_candidates:
+        rng.bit_generator.state = rng_state
+        selection = run_k_selection(
+            config=replace(config, factor_rank=int(q)),
+            k_candidates=inner_k_candidates,
+            rng=rng,
+            **kwargs,
+        )
+        score = float(selection[1]["selection_score"])
+        rank_scores.append({"factor_rank": int(q), "score": score})
+        if score < best_score:
+            best_score, best_q, best = score, int(q), selection
+
+    config_out, meta, selection_idx, global_result, sample_results, k_by_distribution = best
+    meta = {
+        **meta,
+        "factor_rank_candidates": [int(q) for q in q_candidates],
+        "best_factor_rank": int(best_q),
+        "factor_rank_scores": {
+            "factor_rank": [r["factor_rank"] for r in rank_scores],
+            "score": [r["score"] for r in rank_scores],
+        },
+    }
+    return config_out, meta, selection_idx, global_result, sample_results, k_by_distribution
+
+
 def _fit_gmm(
     *,
     x: np.ndarray,
@@ -148,13 +344,15 @@ def _fit_gmm(
     k_comps: int | list[int] | tuple[int, ...] | None,
     k_selection_metric: Literal["bic", "aic", "heldout_nll"],
     refit: Literal["full", "none"],
-    covariance_type: Literal["diag", "full"],
+    covariance_type: Literal["diag", "full", "lowrank"],
     train_size: float,
     max_iter: int,
     tol: float,
     n_init: int,
     eps: float,
     singularity_handling: Literal["guarded", "robust", "strict"],
+    factor_rank: int | list[int] | tuple[int, ...] | None,
+    psi_floor: float,
     verbose: bool = False,
 ) -> dict[str, Any]:
     """Run complete GMM orchestration on matrix inputs."""
@@ -172,12 +370,15 @@ def _fit_gmm(
     )
 
     fixed_k, k_candidates = parse_k_comps(k_comps)
-    has_selection = k_candidates is not None
+    fixed_q, q_candidates = parse_factor_rank(factor_rank)
+    if q_candidates is not None and covariance_type != "lowrank":
+        raise ValueError("factor_rank may only be a list when covariance_type='lowrank'.")
+    has_selection = k_candidates is not None or q_candidates is not None
 
     if not has_selection:
         refit = "full"
 
-    min_required = int(max(k_candidates)) if has_selection else int(fixed_k)
+    min_required = int(max(k_candidates)) if k_candidates is not None else int(fixed_k)
     if x.shape[0] < min_required:
         raise ValueError(f"Not enough cells for requested components: n_cells={x.shape[0]} < required={min_required}.")
 
@@ -199,6 +400,9 @@ def _fit_gmm(
         n_init=n_init,
         eps=eps,
         singularity_handling=singularity_handling,
+        # Scalar rank for the base config; the q-sweep overrides it per candidate.
+        factor_rank=fixed_q if q_candidates is None else int(q_candidates[0]),
+        psi_floor=psi_floor,
     )
 
     seed = settings.random_seed
@@ -217,13 +421,14 @@ def _fit_gmm(
         selected_global_result,
         selected_sample_results,
         selected_k_by_distribution,
-    ) = run_k_selection(
+    ) = _run_kq_selection(
         x=x,
         distribution_index=distribution_index,
         distribution_ids=distribution_ids,
         component_sharing=component_sharing,
         config=config,
         k_candidates=k_candidates,
+        q_candidates=q_candidates,
         k_selection_metric=k_selection_metric,
         refit=refit,
         train_size=train_size,
@@ -322,16 +527,18 @@ def fit_gmm(
     dataset,
     *,
     component_sharing: Literal["global", "sample_specific", "auto"] = "sample_specific",
-    k_comps: int | list[int] | tuple[int, ...] | None = None,
+    k_comps: int | list[int] | tuple[int, ...] | str | None = None,
     k_selection_metric: Literal["bic", "aic", "heldout_nll"] = "aic",
     refit: Literal["full", "none"] = "none",
-    covariance_type: Literal["diag", "full"] = "full",
+    covariance_type: Literal["diag", "full", "lowrank", "adaptive"] = "full",
     train_size: float = 0.5,
     max_iter: int = 100,
     tol: float = 1e-3,
     n_init: int = 1,
     eps: float = 1e-4,
     singularity_handling: Literal["guarded", "robust", "strict"] = "guarded",
+    factor_rank: int | list[int] | tuple[int, ...] | None = None,
+    psi_floor: float = 1e-4,
     gmm_key: str | None = None,
     verbose: bool = True,
 ):
@@ -355,9 +562,19 @@ def fit_gmm(
         ``"auto"`` picks ``"sample_specific"`` for AnnData datasets and
         ``"global"`` for generic datasets.
     k_comps
-        Number of GMM components. An int fixes the count; a list/tuple
-        triggers automatic k-selection over the provided candidates using
-        ``k_selection_metric``. ``None`` uses a default candidate range.
+        Number of GMM components, or the column that defines them. An int fixes
+        the count; a list/tuple triggers automatic k-selection over the provided
+        candidates using ``k_selection_metric``; ``None`` uses a default
+        candidate range. A **string** names an ``adata.obs`` column and switches
+        to *cell-type-anchored* fitting (AnnData datasets only): each component
+        is a cell type whose mean is fixed to its per-distribution centroid and
+        whose covariance and weight are estimated in closed form. In this mode
+        ``K`` equals the number of cell types present per distribution,
+        ``component_sharing`` is forced to ``"sample_specific"``, EM and
+        k-selection are bypassed, and the EM/selection parameters below
+        (``k_selection_metric``, ``refit``, ``train_size``, ``n_init``,
+        ``max_iter``, ``tol``, ``factor_rank``) are ignored (a warning is
+        emitted if they are set to non-defaults).
     k_selection_metric
         Criterion used to select the best ``k`` when ``k_comps`` is a
         sequence: ``"aic"`` (default), ``"bic"``, or
@@ -371,7 +588,24 @@ def fit_gmm(
         ``"full"`` refits the best ``k`` on the full dataset.
     covariance_type
         Covariance structure of each Gaussian component:
-        ``"full"`` (default) or ``"diag"``.
+        ``"full"`` (default), ``"diag"``, or ``"lowrank"``. The
+        ``"lowrank"`` mode fits a mixture of factor analyzers with
+        component-specific loadings and diagonal uniquenesses
+        (``Sigma_k = Lambda_k Lambda_k.T + diag(Psi_k)``) and materializes
+        full covariances for downstream OT. ``"adaptive"`` is only valid in
+        anchored mode (string ``k_comps``): per component it uses a full
+        covariance when the component has at least ``n_features + 1`` cells and
+        a diagonal one otherwise, materializing both as full matrices.
+    factor_rank
+        Latent factor dimension ``q`` for ``covariance_type="lowrank"``.
+        Required when fitting low-rank models (``0 < q < n_features``); ignored
+        for ``"diag"``/``"full"``. A list/tuple sweeps the global rank and selects
+        the best ``q`` by ``k_selection_metric`` (the same criterion as
+        ``k_comps``), recorded in the GMM schema.
+    psi_floor
+        Relative floor for the diagonal uniquenesses ``Psi`` in
+        ``covariance_type="lowrank"``, applied as
+        ``psi_floor * global_feature_variance``. Ignored otherwise.
     train_size
         Training fraction used during k-selection. The remaining
         ``1 - train_size`` cells form the validation split for
@@ -399,7 +633,7 @@ def fit_gmm(
     gmm_key
         Key under which the fitted GMM is stored in
         ``dataset.adata.uns`` (AnnData datasets only). Defaults to
-        ``"gmm_<use_rep>"`` when ``None``.
+        ``"gmm_<use_rep>"`` (or ``"gmm_layer_<layer>"``) when ``None``.
     verbose
         Print per-patient fit progress.
 
@@ -410,6 +644,44 @@ def fit_gmm(
         and weights.
     """
     from ggml_ot.data.anndata import AnnData_TripletDataset
+
+    anchored = isinstance(k_comps, str)
+    if anchored:
+        if not isinstance(dataset, AnnData_TripletDataset):
+            raise ValueError(
+                "Cell-type-anchored fitting (string k_comps) is only supported for "
+                "AnnData_TripletDataset, which carries the obs cell-type labels."
+            )
+        if covariance_type not in {"full", "diag", "adaptive"}:
+            raise ValueError(
+                f"Anchored fitting does not support covariance_type={covariance_type!r}. "
+                "Use 'full', 'diag', or 'adaptive'."
+            )
+        _warn_inert_anchored_params(
+            k_selection_metric=k_selection_metric,
+            refit=refit,
+            train_size=train_size,
+            n_init=n_init,
+            max_iter=max_iter,
+            tol=tol,
+            factor_rank=factor_rank,
+            component_sharing=component_sharing,
+        )
+        resolved_gmm_key = gmm_key or f"gmm_{'X' if dataset.use_rep is None else dataset.use_rep}"
+        return _fit_anchored_anndata(
+            dataset,
+            gmm_key=resolved_gmm_key,
+            anchor_column=k_comps,
+            covariance_mode=covariance_type,
+            eps=eps,
+            singularity_handling=singularity_handling,
+            verbose=verbose,
+        )
+
+    if covariance_type == "adaptive":
+        raise ValueError(
+            "covariance_type='adaptive' is only supported in anchored mode (pass an adata.obs column name as k_comps)."
+        )
 
     resolved_sharing = _resolve_component_sharing(dataset=dataset, component_sharing=component_sharing)
     fit_kwargs = {
@@ -423,15 +695,18 @@ def fit_gmm(
         "n_init": n_init,
         "eps": eps,
         "singularity_handling": singularity_handling,
+        "factor_rank": factor_rank,
+        "psi_floor": psi_floor,
         "verbose": verbose,
     }
 
     if isinstance(dataset, AnnData_TripletDataset):
-        resolved_gmm_key = gmm_key or f"gmm_{'X' if dataset.use_rep is None else dataset.use_rep}"
+        resolved_gmm_key = gmm_key or f"gmm_{get_obs_matrix_key(dataset.use_rep, dataset.layer)}"
         x, distribution_index, distribution_ids = _extract_fit_data_from_anndata(
             dataset.adata,
             use_rep=dataset.use_rep,
             distribution_col=dataset.patient_col,
+            layer=dataset.layer,
         )
         fit_outputs = _fit_gmm(
             x=x,
@@ -449,6 +724,7 @@ def fit_gmm(
             gmm_key=resolved_gmm_key,
             component_sharing=resolved_sharing,
             use_rep=dataset.use_rep,
+            layer=dataset.layer,
             covariance_type=config.covariance_type,
             n_components=int(config.n_components),
             distribution_n_components=np.asarray(
@@ -458,13 +734,7 @@ def fit_gmm(
                 ),
                 dtype=int,
             ),
-            fit_params={
-                "max_iter": int(config.max_iter),
-                "tol": float(config.tol),
-                "n_init": int(config.n_init),
-                "eps": float(config.eps),
-                "singularity_handling": str(config.singularity_handling),
-            },
+            fit_params=_fit_params_schema(config),
             selection=selection_meta,
             backend="native",
             backend_metadata={

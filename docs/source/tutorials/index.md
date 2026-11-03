@@ -5,6 +5,7 @@ In the following tutorials, we provide guidance on all relevant functions of the
 ```{nbgallery}
 1_basic_tutorial
 2_biological_analysis
+6_loading_datasets
 ```
 
 ## Tuning & Performance

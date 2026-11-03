@@ -3,7 +3,7 @@
 Covers:
 - ``StratifiedBatchSampler`` — proportional class representation per batch.
 - ``warn_empty_triplets``    — empty-triplet guard used in the training loop.
-- ``_create_triplets``       — contrastive triplet index generation.
+- ``_create_categorical_triplets``       — contrastive triplet index generation.
 - ``_setup_dataloader``      — DataLoader factory with stratified batching.
 """
 
@@ -17,7 +17,7 @@ import torch
 import ggml_ot
 from ggml_ot._utils._batch import StratifiedBatchSampler, _setup_dataloader
 from ggml_ot.optimization._triplets import warn_empty_triplets
-from ggml_ot.optimization.triplets import _create_triplets
+from ggml_ot.optimization.triplets import _create_categorical_triplets
 from ggml_ot.optimization.params import DataLoaderParams
 
 from .utils.config import get_synth_config
@@ -98,17 +98,17 @@ class TestStratifiedBatchSampler:
 
 
 # ===================================================================
-# _create_triplets
+# _create_categorical_triplets
 # ===================================================================
 
 
 class TestCreateTriplets:
-    """Tests for ``_create_triplets``."""
+    """Tests for ``_create_categorical_triplets``."""
 
     def test_basic_two_classes(self):
         """Two classes with 2 samples each produces the expected number of triplets."""
         labels = [0, 0, 1, 1]
-        triplets = _create_triplets(labels)
+        triplets = _create_categorical_triplets(labels)
         assert triplets.ndim == 2
         assert triplets.shape[1] == 3
         # Same-class pairs: (0,0),(0,1),(1,0),(1,1) for class 0 and class 1
@@ -117,18 +117,18 @@ class TestCreateTriplets:
 
     def test_single_class_returns_empty(self):
         """A single class cannot form contrastive triplets."""
-        triplets = _create_triplets([0, 0, 0])
+        triplets = _create_categorical_triplets([0, 0, 0])
         assert triplets.shape[0] == 0
 
     def test_empty_input(self):
         """Empty labels produce empty triplets."""
-        triplets = _create_triplets([])
+        triplets = _create_categorical_triplets([])
         assert triplets.shape[0] == 0
 
     def test_triplet_class_invariant(self):
         """For every (i,j,k): labels[i]==labels[j] and labels[j]!=labels[k]."""
         labels = torch.tensor([0, 0, 1, 1, 2])
-        triplets = _create_triplets(labels)
+        triplets = _create_categorical_triplets(labels)
         for row in triplets:
             i, j, k = row.tolist()
             assert labels[i] == labels[j]
@@ -137,7 +137,7 @@ class TestCreateTriplets:
     def test_on_smoke_dataset(self, smoke_dataset):
         """Smoke dataset labels produce valid triplets."""
         labels = smoke_dataset.distribution_labels
-        triplets = _create_triplets(labels)
+        triplets = _create_categorical_triplets(labels)
         assert triplets.shape[0] > 0
         assert triplets.shape[1] == 3
 

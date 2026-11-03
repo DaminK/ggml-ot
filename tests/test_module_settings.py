@@ -44,3 +44,16 @@ def test_n_threads_updates_torch_thread_pool():
         assert torch.get_num_threads() == 4
     finally:
         settings.update(n_threads=original_threads)
+
+
+@pytest.mark.parametrize("strategy", ["orthonormal", "orthogonal", "xavier", "random"])
+def test_init_strategy_dispatch(strategy, monkeypatch):
+    """Every documented init_strategy yields a trainable (n_comps, dim) map."""
+    from types import SimpleNamespace
+
+    from ggml_ot.optimization._ggml import _ggml_init
+
+    settings = importlib.import_module("ggml_ot").settings
+    monkeypatch.setattr(settings, "init_strategy", strategy)
+    map_A = _ggml_init(SimpleNamespace(dataset=SimpleNamespace(dim=10)), 3)
+    assert map_A.shape == (3, 10) and map_A.requires_grad

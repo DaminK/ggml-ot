@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+from ggml_ot._utils._anndata_utils import get_obs_matrix_key
 
 from ._grouping import (
     BarycenterWeighting,
@@ -22,14 +23,13 @@ from ._grouping import (
 # ---------------------------------------------------------------------------
 
 
-def resolve_gmm_key(adata: AnnData, gmm_key: str | None, use_rep: str | None) -> str:
+def resolve_gmm_key(adata: AnnData, gmm_key: str | None, use_rep: str | None, layer: str | None = None) -> str:
     """Resolve a GMM key, falling back to the default naming convention."""
     available_keys = [k for k in adata.uns if k.startswith("gmm_")]
     if gmm_key is not None:
         key = gmm_key
     else:
-        rep_label = "X" if use_rep is None else use_rep
-        key = f"gmm_{rep_label}"
+        key = f"gmm_{get_obs_matrix_key(use_rep, layer)}"
         if key not in adata.uns and len(available_keys) == 1:
             key = str(available_keys[0])
     if key not in adata.uns:
@@ -180,9 +180,11 @@ def _resolve_adata_and_gmm_key(data, gmm_key: str | None) -> tuple[AnnData, str]
     adata = _resolve_adata(data)
     if isinstance(data, AnnData):
         use_rep = adata.uns.get("ggml_params", {}).get("use_rep")
+        layer = adata.uns.get("ggml_params", {}).get("layer")
     else:
         use_rep = getattr(data, "use_rep", None)
-    resolved_key = resolve_gmm_key(adata, gmm_key, use_rep)
+        layer = getattr(data, "layer", None)
+    resolved_key = resolve_gmm_key(adata, gmm_key, use_rep, layer)
     return adata, resolved_key
 
 

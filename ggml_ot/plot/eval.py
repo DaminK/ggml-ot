@@ -15,6 +15,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from IPython.display import display
 
+from ggml_ot.benchmark._metrics import _best_index_by_scoring
 from ggml_ot.plot._utils import savefig_or_show
 
 
@@ -79,9 +80,12 @@ def confusion_matrix(
 def table(
     df,
     *,
+    best_metric: str | None = None,
+    scoring=None,
     style_performance=False,
     print_latex=False,
     title="",
+    highlight_epoch_time: bool = True,
     save: str | bool | None = None,
 ):
     """Display a DataFrame of evaluation metrics as a formatted table.
@@ -90,22 +94,45 @@ def table(
     ----------
     df : pandas.DataFrame
         Data to display.
+    best_metric : str or None, default None
+        Name of the metric used to pick and highlight the best row
+        (e.g. ``"knn"``, ``"ari"``). When provided,
+        it must be a supported scoring metric. If ``None``, the first
+        metric column of ``df`` is used and higher-is-better is assumed.
+    scoring : sequence of str or None, default None
+        Scoring metric order used for displayed-value tie-breaking. When
+        provided, the second metric breaks ties in the first metric.
     style_performance : bool, default False
         Highlight the best-performing row in the table.
     print_latex : bool, default False
         Print a LaTeX representation of the table.
     title : str, default ``""``
         Caption for the styled table.
+    highlight_epoch_time : bool, default True
+        Whether to shade the ``epoch_time(s)`` column with a "lower-is-better"
+        red gradient.  Set to ``False`` to highlight only the selected metric.
     save : str, bool, or None, default None
         ``True`` renders the table as a PDF to
         ``settings.figdir/table.<figformat>``; a *str* overrides the
         filename.  ``None``/``False`` skips saving.
     """
     if style_performance:
+        from ggml_ot.benchmark import SCORING_LOWER_IS_BETTER
+
         data_df = df.data if isinstance(df, style.Styler) else df
 
+        if best_metric is None:
+            best_metric = data_df.columns.get_level_values(0)[0]
+            lower_is_better = SCORING_LOWER_IS_BETTER.get(best_metric, False)
+        else:
+            lower_is_better = SCORING_LOWER_IS_BETTER[best_metric]
+        best_col = (best_metric, "mean")
+
         # Highlight best row
-        best_index = data_df[("knn", "mean")].idxmax()
+        if scoring is None:
+            best_index = data_df[best_col].idxmin() if lower_is_better else data_df[best_col].idxmax()
+        else:
+            best_index = _best_index_by_scoring(data_df, scoring, display_precision=2)
         idx = pd.IndexSlice
         slice_ = idx[idx[best_index], :]
 
@@ -122,16 +149,18 @@ def table(
                 return s.apply_index(func)
 
         cm_green = sns.color_palette("light:green", as_cmap=True)
+        if lower_is_better:
+            cm_green = cm_green.reversed()
         cm_red = sns.color_palette("light:tomato", as_cmap=True)
 
         df = (
             data_df.style.set_caption(title)
-            .background_gradient(cmap=cm_green, subset=pd.IndexSlice[:, ("knn", "mean")])
+            .background_gradient(cmap=cm_green, subset=pd.IndexSlice[:, best_col])
             .pipe(
                 lambda s: s.background_gradient(
                     cmap=cm_red, subset=pd.IndexSlice[:, ("epoch_time(s)", "mean")]
                 ).applymap(lambda x: "color: transparent; background-color: transparent" if pd.isnull(x) else "")
-                if ("epoch_time(s)", "mean") in data_df.columns
+                if highlight_epoch_time and ("epoch_time(s)", "mean") in data_df.columns
                 else s
             )
             .pipe(lambda s: _styler_map_or_applymap(s, lambda _: "font-weight:bold", subset=slice_))
@@ -149,8 +178,20 @@ def table(
         _save_table_as_figure(df, title=title, save=save)
 
     if print_latex:
+        from ggml_ot.benchmark import SCORING_LOWER_IS_BETTER
+
         data_df = df.data if isinstance(df, style.Styler) else df
-        best_index = data_df[("knn", "mean")].idxmax()
+
+        if best_metric is None:
+            best_metric = data_df.columns.get_level_values(0)[0]
+            lower_is_better = SCORING_LOWER_IS_BETTER.get(best_metric, False)
+        else:
+            lower_is_better = SCORING_LOWER_IS_BETTER[best_metric]
+        best_col = (best_metric, "mean")
+        if scoring is None:
+            best_index = data_df[best_col].idxmin() if lower_is_better else data_df[best_col].idxmax()
+        else:
+            best_index = _best_index_by_scoring(data_df, scoring, display_precision=2)
 
         sep = "±"
         merged_df = combine_mean_sd(data_df, sep=sep, fmt="{:.2f}", mean_label="mean", sd_label="SD", zero_tol=1e-8)

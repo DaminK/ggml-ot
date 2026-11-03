@@ -4,6 +4,17 @@ import ggml_ot
 from .utils.config import get_kwargs, get_synth_config
 
 
+def _assert_split_metadata(scores):
+    n_splits = scores.attrs["n_splits"]
+    assert n_splits > 0
+    assert set(scores.attrs["per_split"]) >= {"knn", "ari"}
+    assert all(len(values) == n_splits for values in scores.attrs["per_split"].values())
+    assert len(scores.attrs["split_train_idx"]) == n_splits
+    assert len(scores.attrs["split_test_idx"]) == n_splits
+    for train_idx, test_idx in zip(scores.attrs["split_train_idx"], scores.attrs["split_test_idx"]):
+        assert set(train_idx).isdisjoint(test_idx)
+
+
 def test_GGML_synth_train_and_test(solver="emd2"):
     """Tests training and testing of GGML on dynamically created synthetic dataset"""
 
@@ -18,6 +29,7 @@ def test_GGML_synth_train_and_test(solver="emd2"):
     # Check testing
     scores = ggml_ot.test(dataset, map_A, **get_kwargs("smoke", "test"))
     assert scores is not None
+    _assert_split_metadata(scores)
 
 
 def test_GGML_synth_train_test(solver="emd2"):
@@ -31,6 +43,7 @@ def test_GGML_synth_train_test(solver="emd2"):
     map_A, scores = ggml_ot.train_test(dataset, **get_kwargs("smoke", "train_test", entropic_reg=entropic_reg))
     assert map_A is not None
     assert scores is not None
+    _assert_split_metadata(scores)
 
 
 def test_GGML_synth_tune(solver="emd2"):

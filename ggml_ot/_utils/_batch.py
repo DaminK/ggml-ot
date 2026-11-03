@@ -34,6 +34,9 @@ class StratifiedBatchSampler:
     * Once a minority-class pool is exhausted, later batches will lack that
       class.  Combine with an empty-triplet guard in the training loop to
       safely skip those batches.
+    * Degenerates to single-sample-per-class batches when the number of
+      unique label values approaches ``batch_size``.
+      :func:`_setup_dataloader` with ``batch_strategy="auto"`` detects this and falls back to a plain shuffled DataLoader.
 
     Parameters
     ----------
@@ -167,18 +170,54 @@ def move_batch_to_device(
 # ---------------------------------------------------------------------------
 
 
-def _setup_dataloader(params, device: torch.device | None = None):
-    """Build a training DataLoader, using stratified batching when needed.
+def _plain_loader(dataset, batch_size, pin_memory):
+    """Plain shuffled :class:`torch.utils.data.DataLoader`."""
+    return torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=pin_memory,
+        generator=settings.torch_generator,
+    )
 
-    When ``batch_size < len(dataset)`` a :class:`StratifiedBatchSampler` is
-    used so that every mini-batch preserves the global class frequencies,
-    giving each batch a good chance of containing >= 2 classes (required for
-    contrastive triplet formation).
+
+def _stratified_loader(dataset, batch_size, pin_memory):
+    """DataLoader backed by :class:`StratifiedBatchSampler`."""
+    sampler = StratifiedBatchSampler(
+        labels=dataset.distribution_labels,
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    return torch.utils.data.DataLoader(
+        dataset,
+        batch_sampler=sampler,
+        pin_memory=pin_memory,
+    )
+
+
+def _setup_dataloader(params, device: torch.device | None = None):
+    """Build a training DataLoader, dispatching on ``params.batch_strategy``.
+
+    Three strategies, mirroring :meth:`TripletDataset._train_test_split`:
+
+    - ``"stratified"`` — :class:`StratifiedBatchSampler` preserves global
+      class frequencies per batch (suited to settings where each label
+      value has multiple distributions).
+    - ``"shuffle"`` — plain shuffled :class:`torch.utils.data.DataLoader`
+      (suited to settings where labels are mostly unique).
+    - ``"auto"`` (default) — stratified when the number of unique label
+      values is comfortably below ``batch_size``, plain shuffling
+      otherwise. The threshold mirrors the stratified sampler's
+      degeneracy point: when classes outnumber the batch, per-class quotas
+      collapse to one and batches drain unevenly.
+
+    Single-batch training (``batch_size >= len(dataset)``) always returns
+    a plain DataLoader regardless of strategy.
 
     Parameters
     ----------
     params : DataLoaderParams
-        Carries *dataset*, *batch_size*, and optional *train_size*.
+        Carries *dataset*, *batch_size*, *train_size*, and *batch_strategy*.
     device : torch.device, optional
         Target device; used only for ``pin_memory`` heuristic.
     """
@@ -189,27 +228,20 @@ def _setup_dataloader(params, device: torch.device | None = None):
         split_indices = dataset._train_test_split(n_splits=1, train_size=params.train_size)
         dataset = dataset._subset(split_indices[0][0])
 
-    # Single batch -> plain DataLoader (stratification is moot)
+    # Single batch -> plain DataLoader (sampling strategy is moot)
     if params.batch_size >= len(dataset):
-        return torch.utils.data.DataLoader(
-            dataset,
-            batch_size=params.batch_size,
-            shuffle=True,
-            pin_memory=pin_memory,
-            generator=settings.torch_generator,
-        )
+        return _plain_loader(dataset, params.batch_size, pin_memory)
 
-    # Multi-batch -> stratified sampling to keep class proportions per batch
-    sampler = StratifiedBatchSampler(
-        labels=dataset.distribution_labels,
-        batch_size=params.batch_size,
-        shuffle=True,
-    )
-    return torch.utils.data.DataLoader(
-        dataset,
-        batch_sampler=sampler,
-        pin_memory=pin_memory,
-    )
+    strategy = params.batch_strategy
+    if strategy == "auto":
+        n_classes = len(np.unique(np.asarray(dataset.distribution_labels)))
+        strategy = "shuffle" if n_classes >= params.batch_size else "stratified"
+
+    if strategy == "shuffle":
+        return _plain_loader(dataset, params.batch_size, pin_memory)
+    if strategy == "stratified":
+        return _stratified_loader(dataset, params.batch_size, pin_memory)
+    raise ValueError(f"Unknown batch_strategy: {params.batch_strategy!r}")
 
 
 # OPTIMIZE: prefer using condensed-distance indexing in hot paths instead of

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from itertools import product
-import warnings
 
 import pytest
 import torch
@@ -106,16 +105,7 @@ def test_performance_on_gmm(capsys, request, gmm_case: tuple[str, str, bool, str
     if solver == "emd2":
         kw["entropic_reg"] = 0.0
 
-    if device == "gpu" and solver == "emd2":
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r"Exact EMD2 solver is CPU-bound; no GPU acceleration is used for OT solves\.",
-                category=UserWarning,
-            )
-            _, score_df = dataset.train_test(**kw)
-    else:
-        _, score_df = dataset.train_test(**kw)
+    _, score_df = dataset.train_test(**kw)
 
     inf_time_ms = float(score_df.iloc[0][("inf_time(ms)", "mean")])
     # Synthetic GMM baselines may have modest absolute knn_acc; regressions are baseline-relative in A2.
